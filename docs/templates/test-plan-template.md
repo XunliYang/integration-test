@@ -123,7 +123,7 @@ Every case must carry the full set of labels in code: `feature`, `environment`, 
 
 ### 5.4 Case Table
 
-Cases are carried in a 15-column CSV archived in the same directory as this plan: `docs/plans/<version>/testcases-<feature>.csv`. P0/P1 cases must have the requirement link (issue) filled in to support requirement coverage traceability. See [Test Case Table Field Description](testcases-template-fields.md) for field filling rules and [testcases-template.csv](testcases-template.csv) for the template.
+Cases are carried in a 16-column CSV archived in the same directory as this plan: `docs/plans/<version>/testcases-<feature>.csv`. P0/P1 cases must have the requirement link (issue) filled in to support requirement coverage traceability. See [Test Case Table Field Description](testcases-template-fields.md) for field filling rules and [testcases-template.csv](testcases-template.csv) for the template.
 
 ### 5.5 Case Design Requirements
 

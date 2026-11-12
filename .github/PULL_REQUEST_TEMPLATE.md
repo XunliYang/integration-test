@@ -23,7 +23,7 @@
 ## Checklist
 
 - [ ] Test plan follows [test-plan-template.md](docs/templates/test-plan-template.md)
-- [ ] Case CSV follows [Test Case Table Field Description](docs/templates/testcases-template-fields.md) — 15 fixed columns, verbatim header
+- [ ] Case CSV follows [Test Case Table Field Description](docs/templates/testcases-template-fields.md) — 16 fixed columns, verbatim header
 - [ ] Case IDs follow `FIT-<feature>-<topic>-<number>`; P0/P1 cases are 100% automatable with requirement links filled
 - [ ] LLM-dependent cases use deterministic assertions (status code/structure/state, not generated text)
 - [ ] Test code labels complete: `feature` / `environment` / `components` / `priority` / `execution`; no `sleep`, no order dependencies, explicit assertions, teardown cleanup
