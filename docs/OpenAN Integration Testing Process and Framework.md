@@ -124,8 +124,8 @@ flowchart LR
 
 **Workflow:**
 
-1. The feature WG submits a handover issue in the `integration-test` repository (linked to requirements and feature scope);
-2. Submits the test plan (per the [test plan template](https://github.com/project-openan/integration-test/blob/main/docs/templates/test-plan-template.md)) and the case table (per the [test case table template](https://github.com/project-openan/integration-test/blob/main/docs/templates/testcases-template.csv)) via PR, and merges the FIT automated test cases;
+1. The feature WG submits a handover issue in the `integration-test` repository (linked to requirements and feature scope), using the `.github/ISSUE_TEMPLATE/feature-test-tracking.md` template;
+2. Submits the test plan (per the [test plan template](https://github.com/project-openan/integration-test/blob/main/docs/templates/test-plan-template.md)) and the case table (per the [test case table template](https://github.com/project-openan/integration-test/blob/main/docs/templates/testcases-template.csv)) via PR (using `.github/PULL_REQUEST_TEMPLATE.md`), and merges the FIT automated test cases;
 3. The Integration Testing WG organizes the review of the plan, cases and automation code;
 4. Upon approval the handover is complete.
 
