@@ -1,1 +1,3 @@
 outputs/
+evidence/
+e2e/.env
