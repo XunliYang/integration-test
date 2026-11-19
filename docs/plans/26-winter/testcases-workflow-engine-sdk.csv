@@ -1,0 +1,239 @@
+﻿Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Priority,Precondition,Steps,Expected Result,Automatable,Automated Test,Dev Owner,Test Owner,Notes
+26-winter,Execute a linear PSOP DAG in dependency order,[FIT-workflow-engine-sdk-dag-execution-001],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P0,"1. Python 3.12+ virtual environment with workflow-exec-engine 0.1.1 installed from source (pip install -e .) plus a2a-sdk>=1.1.2,<2 and a2a-t-sdk>=1.2.0,<2
+2. A three-step linear PSOP JSON fixture (a -> b -> c -> endNode) is on disk with the root step at layer 0
+3. StubWorkflowEngineClient from workflow_engine.client.stub_engine_client is used, so no external agent endpoint is required
+4. A ControlPoint subclass records every on_task request.step_name in arrival order","1. Load the fixture with Workflow.from_dict and inspect the parsed steps; see result 1
+2. Run WorkflowExecutor(workflow, RecordingControlPoint(), StubWorkflowEngineClient()); see result 2
+3. Compare result.history, executor.step_outputs and the recorded on_task order; see result 3
+4. Recompute every history task_id as uuid5(NAMESPACE_URL, ""<execution_id>:<step>:<subtask_index>"") and compare with the recorded value; see result 4
+5. Cleanup: delete the fixture file, the recorded order list and the temporary event log; see result 5","1. Parsed step names equal [""a"", ""b"", ""c""], the root step has layer 0 and the two remaining steps are downstream of it
+2. result.success is True and result.error is None
+3. control.order equals [""a"", ""b"", ""c""], set(executor.step_outputs) equals {""a"", ""b"", ""c""}, len(result.history) is 3, and each history entry carries the keys step, subtask_index, task, agent, status, task_id, outputs, error, error_code, error_details
+4. Every recomputed uuid5 equals the recorded task_id exactly, proving the logical task identity is stable per execution, step and subtask index
+5. The fixture path no longer exists (os.path.exists is False) and the recorded order list is empty",Yes,,,,"design_method:Scenario Method;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:smoke;verification source: workflow-engine-sdk-python/workflow_engine/core/executor.py#L61-L62,L163-L176,L276-L288"
+26-winter,Join a merge step only after all ancestors finish,[FIT-workflow-engine-sdk-dag-execution-002],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P1,"1. workflow-exec-engine 0.1.1 installed in the test virtual environment
+2. The late-branch DAG a->b,c; b->d,q; c->d; d->s; s->p; q->m; p->m; m->endNode is available as a fixture, where m merges p and q and p becomes ready one batch after q
+3. StubWorkflowEngineClient is used and a ControlPoint records on_task arrival order per step","1. Build the DAG with Workflow.from_dict / WorkflowStep and assert the parsed edges; see result 1
+2. Run the executor and capture the on_task arrival order; see result 2
+3. Assert that the merge step runs after both of its own predecessors and last of all; see result 3
+4. Assert that the merge recorded task results from both branches; see result 4
+5. Cleanup: delete the fixture file and the recorded order list; see result 5","1. Step m has exactly two incoming edges (from p and from q) and every other edge target resolves to a declared step
+2. result.success is True and result.error is None
+3. set(control.order) equals all eight step names, control.order.index(""m"") is greater than the indexes of both ""p"" and ""q"", and control.order[-1] equals ""m""
+4. executor.step_execution_results[""m""] is non-empty and executor.step_outputs[""m""] holds one entry per merge subtask
+5. The fixture file is removed (os.path.exists is False) and the order list is empty",Yes,,,,design_method:Scenario Method;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/executor.py#L142-L161; workflow-engine-sdk-python/test_java_history_parity.py#L79-L144
+26-winter,Scope upstream results by the context_from window,[FIT-workflow-engine-sdk-dag-execution-003],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P1,"1. workflow-exec-engine 0.1.1 installed, with a diamond fixture source->left,right->merge and a deeper fixture source->mid->merge2
+2. A ControlPoint variant that records request.workflow_input for every on_task call
+3. StubWorkflowEngineClient is used so each step yields the deterministic output ""OK from <agent>""
+4. runtime_intent is set to a fixed non-empty string on the executor","1. Run the diamond DAG with context_from omitted and capture the merge TaskRequest; see result 1
+2. Re-run with context_from=[""*""] and then with context_from=[] and compare the selected windows; see result 2
+3. Run the deeper DAG with context_from=[""source""] and inspect the selection; see result 3
+4. Assert that instruction text is never rewritten with upstream results; see result 4
+5. Cleanup: delete both fixtures and clear the captured request lists; see result 5","1. The merge sees exactly two UpstreamStepResult entries (left, right) because an omitted context_from selects direct predecessors, and each entry exposes task_results[0].outputs equal to (""OK from <agent>"",)
+2. context_from=[""*""] selects every ancestor (left, right, source) while context_from=[] selects none, so upstream_results is the empty tuple
+3. context_from=[""source""] selects only ""source"" even though ""mid"" is also an ancestor, and WorkflowInput.runtime_intent equals the value passed to the executor
+4. request.instruction equals the raw subtask description with no appended upstream text and no Runtime Context markdown
+5. Both fixture files are removed and both captured request lists are empty",Yes,,,,design_method:Equivalence Partitioning;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/context_builder.py#L61-L82; workflow-engine-sdk-python/workflow_engine/core/models.py#L356-L364; workflow-engine-sdk-python/test_core_parity.py#L104-L127
+26-winter,Reject an invalid DAG before dispatching any task,[FIT-workflow-engine-sdk-dag-execution-004],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Exception Test,P1,"1. Six malformed PSOP fixtures are available: duplicate step name ""dup""; an edge to unknown step ""z""; a self cycle a->a; a step named endNode; context_from [""*"", ""source""]; a subtask with a blank agent
+2. workflow-exec-engine 0.1.1 installed with StubWorkflowEngineClient in use
+3. A ControlPoint counts on_task calls and the stub counts dispatch calls
+4. No agent endpoint is started, so any dispatch attempt would fail the case","1. Run the executor once per malformed fixture; see result 1
+2. Assert the failure fragment reported for each fixture; see result 2
+3. Assert that no task was dispatched and no agent was contacted; see result 3
+4. Assert the error event emitted on validation failure; see result 4
+5. Cleanup: delete the six fixtures and reset both counters; see result 5","1. Every run returns an ExecutionResult with success False and does not raise out of run()
+2. result.error starts with ""Invalid workflow: "" and joins the fragments with ""; "" into one error string, containing respectively: ""duplicate step 'dup'"", ""references unknown step 'z'"", ""contains a cycle"", ""is reserved for a terminal route"", ""cannot combine '*' with named context sources"", ""has a subtask with blank agent""
+3. The on_task counter is 0 and the stub dispatch counter is 0 for all six runs
+4. Exactly one error event is emitted per run with data.execution_id equal to executor.execution_id and a non-empty data.error
+5. The fixture directory no longer exists and both counters read 0",Yes,,,,design_method:Error Guessing|Decision Table;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/workflow_validator.py#L23-L130; workflow-engine-sdk-python/workflow_engine/core/executor.py#L76-L82
+26-winter,End a branch when all conditional edges are denied,[FIT-workflow-engine-sdk-dag-execution-005],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P2,"1. A DAG whose step ""source"" has three outgoing edges: unconditional to ""close"", condition ""eligible"" to ""a"", condition ""healthy"" to ""b""
+2. A ControlPoint whose on_route denies every conditional edge and records each RouteRequest
+3. StubWorkflowEngineClient in use with all steps declared ALL_SUCCESS
+4. An EventCallback collector captures route_decision events in arrival order","1. Run the executor and capture the route_decision events; see result 1
+2. Assert which edges invoked on_route; see result 2
+3. Assert the workflow outcome and which steps executed; see result 3
+4. Assert the route_decision event payload per edge; see result 4
+5. Cleanup: delete the fixture, the recorded RouteRequests and the captured events; see result 5","1. result.success is True and result.error is None
+2. on_route was called exactly twice, for source->a with condition ""eligible"" and source->b with condition ""healthy""; the unconditional edge source->close never invoked on_route
+3. set(result.step_outputs) equals {""source"", ""close""} and no step_start event exists for ""a"" or ""b""
+4. Three route_decision events exist with data keys step, next, condition, conditional, allowed and reason; the two denied edges report allowed False and conditional True, while the unconditional edge reports conditional False, allowed True and reason ""unconditional edge""
+5. The fixture file is removed, the recorded RouteRequest list is empty and the captured event list is empty",Yes,,,,design_method:Decision Table;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/executor.py#L319-L366; workflow-engine-sdk-python/test_core_parity.py#L49-L83
+26-winter,Report a failed step as a failed workflow outcome,[FIT-workflow-engine-sdk-dag-execution-006],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Exception Test,P2,"1. DAG start (ALL_SUCCESS) -> dispatch (SELF_LOOP) -> aggregate (SELF_LOOP), every subtask served by the stub client
+2. The ControlPoint on_self_task for ""dispatch"" returns TaskResult.failed(""biz.policy_rejected"", ""rejected by policy"") and succeeds for the other steps
+3. An EventCallback collector records every emitted event with its data
+4. No external agent is started, so the case isolates execution outcomes from transport faults","1. Run the executor and capture the event sequence; see result 1
+2. Assert the workflow-level outcome; see result 2
+3. Assert the per-task failure projection in history; see result 3
+4. Assert the error event and that the downstream step never ran; see result 4
+5. Cleanup: delete the fixture, the event collector and any persisted history dump; see result 5","1. run() returns normally, emits an error event for the failing step and then workflow_complete with data.success False
+2. result.success is False and result.error equals ""Step execution failed""
+3. The ""dispatch"" history entry has status ""failed"", error ""rejected by policy"" and error_code ""biz.policy_rejected""; the ""start"" entry has status ""success""
+4. The step error event carries data.step ""dispatch"" and data.error_code ""workflow.step_failed""; set(result.step_outputs) equals {""start"", ""dispatch""} so ""aggregate"" never executed and its on_self_task was never called
+5. The fixture file is removed, the collector is empty and no history dump remains on disk",Yes,,,,"design_method:Error Guessing;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/executor.py#L163-L176,L256-L288; workflow-engine-sdk-python/workflow_engine/core/failure_mapping.py#L18-L31"
+26-winter,Dispatch a Task-T request to an AgentCard agent,[FIT-workflow-engine-sdk-task-dispatch-001],workflow-engine-sdk,mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Protocol Test,P0,"1. docker-compose brings up the mockagent gateway on 127.0.0.1:9300 with the an-l4-ran-agent and an-l4-service-assurance-agent instances mounted under /agents/<id>
+2. AgentCards are loaded from openan-demo/mockagent/registry_seed/agentcard.json, so the target card name is mockagent_an-l4-ran-agent and the card declares the Task-T, Negotiation-T, Authorization-T and Notification-T extension URIs
+3. workflow-exec-engine 0.1.1 and a2a-t-sdk>=1.2.0 are installed in the test virtual environment
+4. A2AT_LLM_* is unset, so the ControlPoint builds the Task-T payload deterministically from a2a_t MetadataContent","1. Build A2ATransport(agent_cards=<seed cards>) and inspect the resolved card map; see result 1
+2. Run a one-step PSOP whose subtask targets mockagent_an-l4-ran-agent with the card skill name ""Analysis and Evaluation"" over WorkflowEngineClient(transport); see result 2
+3. Capture the agent_request event and inspect the sent content metadata and activated extensions; see result 3
+4. Assert the projected remote result in history; see result 4
+5. Cleanup: stop the compose stack, clear the event collector and delete the PSOP fixture; see result 5","1. transport.agent_names equals the card names in the seed file and get_card(""mockagent_an-l4-ran-agent"") returns a card whose supported_interfaces list is non-empty
+2. result.success is True and the history entry has agent ""mockagent_an-l4-ran-agent"", skill ""Analysis and Evaluation"" (card skill id analysis-eval), status ""success"" and a non-empty outputs tuple
+3. The agent_request event has data.agent ""mockagent_an-l4-ran-agent"", data.content.extensions contains A2ATExtension.TASK_T.uri and data.content.metadata holds that same URI as a key with a non-blank prompt value
+4. The history entry outputs contain the remote reply text or artifact text, with error """" and error_code """"
+5. docker compose down exits 0, the event collector is empty and the fixture file no longer exists",Yes,,,,"design_method:Scenario Method;environment:docker-compose;language_profile:python;protocol_primitive:Task-T;execution_strategy:smoke;verification source: workflow-engine-sdk-python/workflow_engine/client/a2a_transport.py#L189-L208,L255-L271; workflow-engine-sdk-python/workflow_engine/client/engine_client.py#L434-L437; openan-demo/mockagent/mockagent_engine/workflow_mode.py#L185-L203"
+26-winter,Route each subtask to the PSOP agent and skill,[FIT-workflow-engine-sdk-task-dispatch-002],workflow-engine-sdk,mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P1,"1. mockagent gateway on 127.0.0.1:9300 with an-l4-ran-agent and an-l4-service-assurance-agent running and their cards loaded
+2. PSOP: step ""diagnose"" holds two subtasks (mockagent_an-l4-ran-agent / ""Analysis and Evaluation"" and mockagent_an-l4-service-assurance-agent / ""Service Assurance Root Cause Analysis"") that share one description; step ""aggregate"" is SELF_LOOP
+3. A ControlPoint records every TaskRequest and returns a Task-T metadata payload keyed by (agent_name, skill)
+4. No LLM is configured, so payload construction is deterministic","1. Run the workflow and capture both TaskRequests; see result 1
+2. Assert the routing fields delivered to on_task; see result 2
+3. Assert that two distinct A2A endpoints were used; see result 3
+4. Assert that the aggregated output keys do not collide; see result 4
+5. Cleanup: stop the compose stack and delete the fixture plus the capture lists; see result 5","1. result.success is True and exactly two on_task calls are recorded for step ""diagnose""
+2. The captured (agent_name, skill) pairs equal {(""mockagent_an-l4-ran-agent"", ""Analysis and Evaluation""), (""mockagent_an-l4-service-assurance-agent"", ""Service Assurance Root Cause Analysis"")}; request.instruction equals the subtask description and request.input.text equals the same description because input was omitted
+3. Two agent_request events target different agent names, and each dispatched URL starts with the supported_interfaces url of its own AgentCard
+4. step_outputs[""diagnose""] has two keys, each equal to <description> [<agent_name>#<subtask_index>] because both subtasks share one description, and each key maps to its own outputs tuple
+5. docker compose down exits 0 and the fixture and capture lists are gone",Yes,,,,"design_method:Equivalence Partitioning;environment:docker-compose;language_profile:python;protocol_primitive:Task-T;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/executor.py#L178-L191,L306-L317; workflow-engine-sdk-python/test_core_parity.py#L145-L161"
+26-winter,Dispatch same-step subtasks concurrently,[FIT-workflow-engine-sdk-task-dispatch-003],workflow-engine-sdk,mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P1,"1. mockagent gateway on 127.0.0.1:9300 with two AN L4 instances whose replies come from the paired dataset
+2. A rendezvous barrier in front of both instances: each request blocks for up to 5 s until both instances have observed a request, then both reply
+3. PSOP with a single step holding one subtask per agent, send_timeout_seconds set to 10 s so a serial dispatch trips the barrier instead of hanging
+4. Barrier arrival log is writable and reset before the run","1. Reset the barrier counters and assert the barrier is open; see result 1
+2. Run the workflow; see result 2
+3. Assert that both requests were observed before either reply; see result 3
+4. Assert that both subtask results landed in the same step; see result 4
+5. Cleanup: reset the barrier, stop the compose stack and delete the fixture; see result 5","1. Both barrier counters read 0 and the barrier state is open
+2. result.success is True and result.error is None
+3. The barrier log records two arrivals before the first release, a state unreachable under serial dispatch, and the run did not hit the 5 s barrier timeout
+4. len(result.history) is 2 with two distinct agent values and the step output map holds two entries
+5. Barrier counters read 0, docker compose down exits 0 and the fixture file is removed",Yes,,,,design_method:Scenario Method;environment:docker-compose;language_profile:python;protocol_primitive:Task-T;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/executor.py#L193-L226; workflow-engine-sdk-python/test_parallel_steps.py#L29-L57
+26-winter,Load AgentCards from registry-center then dispatch,[FIT-workflow-engine-sdk-task-dispatch-004],workflow-engine-sdk,registry-center;mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P1,"1. registry-center is deployed and reachable at https://127.0.0.1:5000 with the provider.organization=OpenAN-Stub AgentCards of mockagent seeded
+2. A registry access token and the CA certificate for the registry endpoint are available (REGISTRY_CENTER_URL, REGISTRY_CA_CERT)
+3. mockagent gateway on 127.0.0.1:9300 with an-l4-ran-agent running and its card published
+4. workflow-exec-engine 0.1.1 installed in the test virtual environment","1. Call RegistryClient(url, access_token=..., ca_certs_path=...).fetch_agent_cards() and inspect the parsed protobuf cards; see result 1
+2. Call fetch_agent_card(""mockagent_an-l4-ran-agent"", ""OpenAN-Stub""); see result 2
+3. Build A2ATransport from the fetched cards and run a one-step PSOP to that agent; see result 3
+4. Assert that the endpoint used came from the card and that registry content is unchanged; see result 4
+5. Cleanup: close the transport, delete the PSOP fixture and re-query the card count; see result 5","1. The call returns N >= 21 AgentCard objects, each with a non-empty name, non-empty capabilities and non-empty supported_interfaces, and no card raises a protobuf parse error
+2. Exactly one card is returned, its name equals ""mockagent_an-l4-ran-agent"" and provider.organization equals ""OpenAN-Stub""; an ambiguous name raises ValueError(""Multiple AgentCards matched. Supply a unique organization and name."")
+3. result.success is True and the history entry names the requested agent with status ""success""
+4. The dispatched URL equals one of the URLs in that card supported_interfaces for the HTTP+JSON binding, and a re-query during the run still returns the same card count, proving the run did not write to the registry
+5. The transport is closed, the fixture file is removed and GET /rest/v1/registry-center/agent-cards returns the same card count as before the case",Yes,,,,design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:Task-T;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/registry/registry_client.py#L246-L313; integration-test/e2e/.env.template#REGISTRY_CENTER_URL
+26-winter,Fail dispatch when the target AgentCard is absent,[FIT-workflow-engine-sdk-task-dispatch-005],workflow-engine-sdk,mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Exception Test,P2,"1. mockagent gateway on 127.0.0.1:9300 running, with an AgentCard loaded for mockagent_an-l4-ran-agent only
+2. PSOP: one step whose subtask.agent is ""mockagent_not_registered"", followed by a SELF_LOOP step ""report""
+3. The mockagent gateway access log is captured for the run
+4. No LLM and no registry are involved, so failure isolation is local to the SDK","1. Run the workflow; see result 1
+2. Assert the failure projection in history; see result 2
+3. Assert that no protocol traffic was produced; see result 3
+4. Assert that the downstream step was skipped; see result 4
+5. Cleanup: stop the compose stack, delete the fixture and clear the access log; see result 5","1. result.success is False and run() does not raise
+2. The history entry has status ""failed"", error_code ""workflow.execution_failed"" and error ""Agent not found: mockagent_not_registered""
+3. Zero agent_request events were emitted and the mockagent access log contains no request tagged with this case id, so no A2A-T message was sent
+4. ""report"" is absent from result.step_outputs and its on_self_task was never called
+5. docker compose down exits 0, the fixture is removed and the access log is empty",Yes,,,,design_method:Error Guessing;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/client/engine_client.py#L210-L214; workflow-engine-sdk-python/workflow_engine/core/failure_mapping.py#L85-L91
+26-winter,Emit ordered state events during a successful run,[FIT-workflow-engine-sdk-state-sync-001],workflow-engine-sdk,mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P0,"1. mockagent gateway on 127.0.0.1:9300 with an-l4-ran-agent running and its card loaded from the seed file
+2. PSOP: remote step ""diagnose"" -> SELF_LOOP step ""aggregate""
+3. A collector appends every serialized event yielded by execute_psop in arrival order
+4. send_timeout_seconds is 120 s so the case fails on assertions rather than on timeouts","1. Drive execute_psop with the collector and drain the iterator to exhaustion; see result 1
+2. Assert the lifecycle framing of the stream; see result 2
+3. Assert the per-step event subsequence for the remote step and for the SELF_LOOP step; see result 3
+4. Assert that every executor event carries the same execution_id; see result 4
+5. Cleanup: assert the terminal complete payload, then clear the collector and delete the fixture; see result 5","1. The stream ends with a ""close"" event; the iterator terminates normally without raising
+2. events[0].type is ""start"" with data.workflow equal to the workflow name and data.steps equal to 2; the last two events are ""complete"" then ""close""; exactly one ""workflow_complete"" event precedes ""complete"" with data.success True
+3. For ""diagnose"" the subsequence step_start, task_request, agent_request, agent_response, task_status_changed, task_response, step_complete appears once in that relative order; for ""aggregate"" the same sequence appears without agent_request and agent_response
+4. Every event whose type is step_start, step_complete, task_request, task_response, task_status_changed, route_decision, workflow_complete or error has a non-empty data.execution_id equal to executor.execution_id, and that value is identical across all of them
+5. The ""complete"" event data.history has 2 entries and data.step_outputs keys equal {""diagnose"", ""aggregate""}; afterwards the collector list is empty and the fixture is removed",Yes,,,,"design_method:State Transition;environment:docker-compose;language_profile:python;protocol_primitive:Task-T;execution_strategy:smoke;verification source: workflow-engine-sdk-python/workflow_engine/runner.py#L149-L153,L191-L238; workflow-engine-sdk-python/workflow_engine/core/executor.py#L53-L59,L163-L176,L228-L288"
+26-winter,Bind one client to one execution and reject reuse,[FIT-workflow-engine-sdk-state-sync-002],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Exception Test,P1,"1. workflow-exec-engine 0.1.1 installed with StubWorkflowEngineClient and WorkflowEngineClient both available
+2. Two independent WorkflowExecutor instances are built on one shared client, and one executor instance is reused twice
+3. No external agent is needed because dispatch is stubbed","1. Run the first executor to completion and assert the client binding is released; see result 1
+2. Start a second executor concurrently on the same client and capture the failure; see result 2
+3. Call run() a second time on the first executor; see result 3
+4. Bind a fresh executor to the same client after the first run finished; see result 4
+5. Cleanup: delete the fixtures and reset the shared client; see result 5","1. The first run returns success True and afterwards the client reports no active execution, so a new begin_execution is accepted
+2. The concurrent bind raises RuntimeError whose message contains ""is already bound to execution"", and the first execution result is unaffected
+3. The second run() raises RuntimeError(""WorkflowExecutor is single-use"") and the stub dispatch count is unchanged
+4. The fresh executor binds successfully and its run returns success True
+5. The fixture set is empty, the client is closed and every executor reports no active execution",Yes,,,,design_method:State Transition;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/client/engine_client.py#L57-L78; workflow-engine-sdk-python/workflow_engine/core/executor.py#L64-L75; workflow-engine-sdk-python/test_protocol_parity.py#L520-L531
+26-winter,Persist final workflow state through on_finish,[FIT-workflow-engine-sdk-state-sync-003],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P1,"1. execute_psop is driven with an on_finish hook that writes the ExecutionResult and the collected events to a JSON file
+2. A three-step DAG fixture and a one-step failing variant are available
+3. agent_cards are built in-process from a local card fixture, so no external agent endpoint is required
+4. send_timeout_seconds is 60 s and the DAG uses SELF_LOOP steps so the run is deterministic","1. Drain the successful run and let on_finish complete; see result 1
+2. Assert the on_finish arguments and their ordering relative to the terminal event; see result 2
+3. Inspect the persisted JSON payload; see result 3
+4. Run the failing variant and assert the hook still fires; see result 4
+5. Cleanup: delete the persisted JSON and both fixtures; see result 5","1. The stream yields ""complete"" and then ""close"", and on_finish is invoked exactly once
+2. on_finish receives the ExecutionResult and the collected event list whose last element type is ""complete""; ""close"" is absent from that snapshot because it is emitted after the hook returns
+3. The persisted JSON parses with json.loads, has success true, a history of 3 entries and step_outputs with the 3 step keys
+4. For the failing variant on_finish is invoked once with success False, a non-empty error and a snapshot whose last element type is ""error"", and a raised exception inside on_finish does not remove the ""close"" event from the stream
+5. The persisted JSON file is deleted and the fixture directory is removed",Yes,,,,"design_method:Scenario Method;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/runner.py#L212-L238,L240-L260; workflow-engine-sdk-python/examples/execute_psop_demo.py#L43-L49"
+26-winter,Surface SDK events to the center as task updates,[FIT-workflow-engine-sdk-state-sync-004],workflow-engine-sdk,orchestration-center;registry-center;mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P2,"1. orchestration-center backend runs on 127.0.0.1:5001 with agent_registry_url pointing at registry-center and the host agent registered
+2. The PSOP used by the case is stored and retrievable via GET /api/v1/orchestrate/psop/{psop_id}
+3. mockagent gateway on 127.0.0.1:9300 with the agents named by that PSOP registered in registry-center
+4. The execution record id created by the case is captured for cleanup","1. Call GET http://127.0.0.1:5001/rest/v1/orchestrate/execute?psop_id=<id>&user_intent=<intent>&target_agent=<host>&lang=en and consume the SSE stream; see result 1
+2. Inspect the status update metadata key __sdk_event__; see result 2
+3. Assert the terminal task state and the last forwarded event type; see result 3
+4. Assert execution_id stability across forwarded events; see result 4
+5. Cleanup: delete the created execution record via DELETE /rest/v1/orchestrate/execution-records/{execution_id} and stop the mock agents; see result 5","1. The SSE stream opens with HTTP 200 and carries status updates for exactly one A2A task id
+2. Every update metadata contains __sdk_event__ as a JSON string with a ""type"" from the SDK event vocabulary and a ""data"" object; at least one update per executed step is present
+3. The terminal update reports TASK_STATE_COMPLETED and the last __sdk_event__ type before it is ""complete""
+4. All __sdk_event__ payloads of the run carry the same non-empty data.execution_id
+5. DELETE returns 200 and a subsequent GET /rest/v1/orchestrate/execution-records no longer lists the record",Yes,,,,"design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: orchestration-center/host_agent/runtime.py#L188-L214,L294-L310; orchestration-center/host_agent/execution.py#L52-L68; orchestration-center/orchestrate/server/frontend_support_server.py#L1157-L1190,L1234-L1248"
+26-winter,Refresh the bound AgentCard map during a session,[FIT-workflow-engine-sdk-state-sync-005],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P2,"1. workflow-exec-engine 0.1.1 installed; two AgentCard sets A and B differ by agent name and by supported_interfaces url
+2. An A2ATransport built from card set A has already created a cached A2A client for the shared agent name
+3. No network call is required because the assertions inspect resolved cards and client objects only
+4. A third card set C contains a duplicated card name and a card without supported_interfaces","1. Build the transport with card set A and resolve the client once; see result 1
+2. Call update_agent_cards(cards_B) and re-inspect the map; see result 2
+3. Assert that the pre-update cached client is not reused; see result 3
+4. Apply the invalid card set C and assert the rejection plus map retention; see result 4
+5. Cleanup: close both transports and delete the three card fixtures; see result 5","1. agent_names equals the set A names and get_card(<shared name>) returns the set A card with its set A supported_interfaces url
+2. agent_names equals the set B names and get_card on a name removed in set B returns None
+3. client_for(<shared name>) returns a different object than before the update, showing the cached client was dropped, and get_card(<shared name>) now exposes the set B url
+4. The invalid update raises ValueError(""Duplicate AgentCard name: <name>"") for the duplicate and ValueError(""AgentCard supported_interfaces are required: <name>"") for the incomplete card, and after both rejections agent_names still equals the set B names
+5. Both transports are closed and the three card fixtures are deleted",Yes,,,,"design_method:State Transition;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/client/a2a_transport.py#L189-L208,L247-L253,L799-L814; workflow-engine-sdk-python/test_validation_and_security.py#L155-L171"
+26-winter,Hand the final workflow result back to the caller,[FIT-workflow-engine-sdk-result-callback-001],workflow-engine-sdk,mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P0,"1. mockagent gateway on 127.0.0.1:9300 with an-l4-ran-agent running and its card loaded
+2. PSOP: remote step ""diagnose"" -> SELF_LOOP step ""aggregate"", with runtime_intent set to a fixed string
+3. execute_psop is driven with an on_finish hook that records (ExecutionResult, collected events)
+4. send_timeout_seconds is 120 s so the case fails on assertions rather than on timeouts","1. Drain the run and capture the on_finish arguments; see result 1
+2. Assert the ExecutionResult contract; see result 2
+3. Assert the per-task result fields for the remote step; see result 3
+4. Assert event hand-back consistency between the snapshot and the returned result; see result 4
+5. Cleanup: clear the captured result and events, then delete the fixture; see result 5","1. on_finish is invoked exactly once and the stream ends with ""close""
+2. ExecutionResult.success is True, error is None, len(history) is 2 and set(step_outputs) equals {""diagnose"", ""aggregate""}
+3. The ""diagnose"" history entry has agent ""mockagent_an-l4-ran-agent"", task equal to the subtask description, status ""success"", a non-empty task_id, a non-empty outputs list, error """" and error_code """"
+4. The events snapshot passed to on_finish ends with type ""complete"", its data.step_outputs equals the returned result.step_outputs key-for-key and its data.history has the same length as result.history
+5. The captured tuple and event list are empty and the fixture file no longer exists",Yes,,,,"design_method:Scenario Method;environment:docker-compose;language_profile:python;protocol_primitive:Task-T;execution_strategy:smoke;verification source: workflow-engine-sdk-python/workflow_engine/core/models.py#L542-L547; workflow-engine-sdk-python/workflow_engine/core/executor.py#L134-L140,L276-L288; workflow-engine-sdk-python/workflow_engine/runner.py#L212-L238"
+26-winter,Deliver upstream results and outputs to on_task,[FIT-workflow-engine-sdk-result-callback-002],workflow-engine-sdk,mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P1,"1. mockagent gateway on 127.0.0.1:9300 with two instances, one replying with an artifact and one replying with message parts only
+2. PSOP: step ""collect"" -> step ""consume"" with context_from unset, so the direct predecessor is selected
+3. A ControlPoint captures the TaskRequest for ""consume""
+4. AgentCards for both instances declare the Task-T extension so replies carry A2A-T metadata","1. Run the workflow and capture the consume TaskRequest; see result 1
+2. Assert the upstream grouping and per-task fields; see result 2
+3. Assert the output projection rule for the artifact reply and for the message-only reply; see result 3
+4. Assert metadata preservation on received messages; see result 4
+5. Cleanup: clear the captured request and delete the fixture; see result 5","1. result.success is True and request.workflow_input.runtime_intent equals the runtime intent passed to the executor
+2. workflow_input.upstream_results has exactly one entry with step_name ""collect""; its task_results expose agent_name, skill, task_id, task_description, status SUCCESS, a non-empty ordered outputs tuple and empty error and error_code
+3. For the artifact reply the outputs are projected from the artifact parts with no duplicated message parts, and for the message-only reply the outputs are projected from the final message parts
+4. received_messages preserves message metadata, task metadata and each artifact metadata at their original levels, with artifact id and name retained
+5. The captured request list is empty and the fixture is removed",Yes,,,,"design_method:Equivalence Partitioning;environment:docker-compose;language_profile:python;protocol_primitive:Task-T;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/models.py#L164-L182,L318-L343; workflow-engine-sdk-python/workflow_engine/core/context_builder.py#L61-L82; workflow-engine-sdk-python/DESIGN.md#L51-L67"
+26-winter,Return a stable failure code to the caller,[FIT-workflow-engine-sdk-result-callback-003],workflow-engine-sdk,n/a,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Exception Test,P1,"1. workflow-exec-engine 0.1.1 installed; StubWorkflowEngineClient in use so no network is needed
+2. Three ControlPoint variants: raises BusinessFailure(""biz.policy_rejected"", ""policy rejected""); raises ValueError(""boom""); raises TimeoutError()
+3. An EventCallback collector records error events and their data
+4. The redaction variant embeds ""Bearer s3cr3t-value"" in the raised message","1. Run the BusinessFailure variant and capture its history entry; see result 1
+2. Run the generic-exception variant; see result 2
+3. Run the timeout variant; see result 3
+4. Run the redaction variant and assert no credential-shaped value leaks; see result 4
+5. Cleanup: clear the collector and delete the fixtures; see result 5","1. The history entry has status ""failed"", error_code ""biz.policy_rejected"" and error ""policy rejected"", and result.success is False
+2. The history entry has error_code ""workflow.execution_failed"" and error ""boom"", so an integration fault stays actionable
+3. The history entry has error_code ""workflow.timeout"" and a non-empty error
+4. The recorded error and error_code placeholders contain ""Bearer ***"" instead of ""s3cr3t-value"", and error_details contains no raw credential value
+5. The collector is empty and the four fixtures are removed",Yes,,,,"design_method:Equivalence Partitioning;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/core/failure_mapping.py#L18-L31,L85-L91; workflow-engine-sdk-python/workflow_engine/core/models.py#L531-L539; workflow-engine-sdk-python/workflow_engine/client/sensitive_data.py#L55-L65"
+26-winter,Reshape SDK events for the application stream,[FIT-workflow-engine-sdk-result-callback-004],workflow-engine-sdk,mockagent,https://github.com/project-openan/orchestration-center/issues/79;https://github.com/project-openan/integration-test/issues/13,Functional Test,P2,"1. execute_psop is called with an async on_event transformer that drops agent_* events, splits task_response into two business events and injects one psop_update event
+2. mockagent gateway on 127.0.0.1:9300 with an-l4-ran-agent running so agent_request and agent_response events exist
+3. An on_finish hook records the collected event list
+4. A second run uses a transformer that raises, to assert the degradation path","1. Run with the transformer and capture the yielded stream; see result 1
+2. Assert filtering and expansion in the yielded stream; see result 2
+3. Assert the injected business event; see result 3
+4. Assert that on_finish receives the untransformed list and that a raising transformer degrades to the original event; see result 4
+5. Cleanup: clear both captures and delete the fixtures; see result 5","1. The yielded stream still begins with ""start"" and ends with ""close""
+2. No agent_request or agent_response appears in the yielded stream, and each task_response is replaced by exactly two business events emitted in the original position order
+3. Exactly one psop_update event is yielded carrying the business payload supplied by the transformer
+4. The on_finish snapshot still contains the untransformed events including agent_* ones; with a raising transformer the original event is yielded unchanged and the run still ends with ""close""
+5. The captured stream list and the on_finish snapshot are empty and the fixtures are removed",Yes,,,,"design_method:Scenario Method;environment:docker-compose;language_profile:python;protocol_primitive:Task-T;execution_strategy:full;verification source: workflow-engine-sdk-python/workflow_engine/runner.py#L91-L104,L242-L260"
