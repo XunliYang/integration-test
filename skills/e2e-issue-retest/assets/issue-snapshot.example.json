@@ -1,0 +1,10 @@
+{
+  "owner": "project-openan",
+  "repo": "registry-center",
+  "issue_number": 42,
+  "url": "https://github.com/project-openan/registry-center/issues/42",
+  "title": "[Bug][registry-center] Registering a valid agent returns 500",
+  "state": "open",
+  "labels": ["bug", "status/pending-test"],
+  "body": "### Problem Description\nRegistering a valid agent returns 500; expected 201.\n\n**Failed Case:** FIT-registry-center-agentcard-001\n**Test File:** e2e/registry-center/test_agent_register.py\n**Reproduction Command:** uv run pytest e2e/registry-center/test_agent_register.py::test_register_agent_success -q\n\n### E2E Source Path (test project root)\n- /path/to/registry-center\n"
+}
