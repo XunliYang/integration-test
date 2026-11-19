@@ -42,6 +42,8 @@ class InstallConfig:
     llm_api_url: str
     llm_api_key: str
     image_tag: str
+    portal_tag: str
+    frontend_type: str
     admin_password: str
     db_password: str
     offline_k8s_bundle: str
@@ -70,6 +72,8 @@ def install_config() -> InstallConfig:
         llm_api_url=os.getenv("OPENAN_INSTALL_LLM_API_URL", "").strip(),
         llm_api_key=os.getenv("OPENAN_INSTALL_LLM_API_KEY", "").strip(),
         image_tag=os.getenv("OPENAN_INSTALL_IMAGE_TAG", "").strip(),
+        portal_tag=os.getenv("OPENAN_INSTALL_PORTAL_TAG", "v1.0.0").strip(),
+        frontend_type=os.getenv("OPENAN_INSTALL_FRONTEND_TYPE", "portal").strip(),
         admin_password=os.getenv("OPENAN_INSTALL_ADMIN_PASSWORD", "").strip(),
         db_password=os.getenv("OPENAN_INSTALL_DB_PASSWORD", "").strip(),
         offline_k8s_bundle=os.getenv("OPENAN_INSTALL_OFFLINE_K8S_BUNDLE", "").strip(),

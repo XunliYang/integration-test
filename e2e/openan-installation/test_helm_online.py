@@ -53,7 +53,7 @@ def test_helm_wizard_registry_only_deploys_registry_center(require_profile):
     require_profile("cluster-ops")
     cfg = install_config()
     require_helm_env(cfg)
-    install = install_online_helm(cfg, components_answer="registry-center", evidence_stem="helm-components-001")
+    install = install_online_helm(cfg, components_answer="registry", evidence_stem="helm-components-001")
     assert install.exit_code == 0, install.output
     assert "install complete" in install.output.lower(), install.output
     assert wait_until(all_pods_running_and_ready, timeout=600), kubectl(["-n", "openan", "get", "pods"]).output

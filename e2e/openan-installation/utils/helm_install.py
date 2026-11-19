@@ -25,15 +25,43 @@ def require_helm_env(cfg: InstallConfig) -> None:
 def wizard_answers(cfg: InstallConfig, components_answer: str | None = None) -> list:
     answers = []
     if components_answer is not None:
-        answers.append((r"component|which services|select", components_answer))
+        answers.append((r"components\s*\[", components_answer))
     answers.extend(
         [
+            # install.sh: regenerate a leftover deployment.generated.json from a prior run
+            (r"regenerate", "y"),
+            # install.sh [2/4] infrastructure phase
+            (r"install metallb", "y"),
+            (r"metallb ip pool", ""),
+            # configure.py Step 1: components (full-stack default). The trailing "["
+            # disambiguates the prompt from the "Components:" line in the deploy summary.
+            (r"components\s*\[", "all"),
+            # configure.py Step 2: image tags (narrow per-component matchers, in order)
+            (r"registry-center image tag", cfg.image_tag),
+            (r"orchestration-center image tag", cfg.image_tag),
+            (r"frontend image", cfg.frontend_type),
+            (r"portal image tag", cfg.portal_tag),
+            # configure.py Step 4: LLM. The chat/embed/rerank prompts all contain
+            # "model"/"url"/"key", so match each capability's frame specifically and
+            # skip the optional embed/rerank/A2A-T blocks.
+            (r"configure llm", "now"),
+            (r"chat[\w ]{0,20}model", cfg.llm_model),
+            (r"chat[\w ]{0,20}url", cfg.llm_api_url),
+            (r"chat[\w ]{0,20}key", cfg.llm_api_key),
+            (r"embed[\w ]{0,20}model", ""),
+            (r"rerank[\w ]{0,20}model", ""),
+            (r"use same llm", "yes"),
+            (r"a2a-t sdk negotiation model", ""),
+            # configure.py Step 5: signing & secrets
+            (r"registry signing material", "auto"),
             (r"admin[\w ]{0,30}password", cfg.admin_password),
             (r"(postgres|database)[\w ]{0,30}password", cfg.db_password),
-            (r"(image[\w ]{0,10}tag|\btag\b)", cfg.image_tag),
-            (r"model", cfg.llm_model),
-            (r"(api[ ]?url|base[ ]?url|endpoint|url)", cfg.llm_api_url),
-            (r"(api[ ]?key|\bkey\b)", cfg.llm_api_key),
+            # gen_certs.py (containerized/tool/) is missing from the repo, so the
+            # default HTTPS path fails; explicitly decline self-signed HTTPS.
+            (r"enable https|self-signed", "no"),
+            # install.sh [4/4] deploy confirmation and optional demo agents server.
+            (r"deploy with this", "y"),
+            (r"agent examples server", "n"),
         ]
     )
     return answers
@@ -45,7 +73,7 @@ def install_online_helm(
     evidence_stem: str | None = None,
 ) -> CommandResult:
     return run_interactive(
-        "./install.sh",
+        str(online_install_dir(cfg) / "install.sh"),
         cwd=online_install_dir(cfg),
         answers=wizard_answers(cfg, components_answer),
         timeout=3600,
