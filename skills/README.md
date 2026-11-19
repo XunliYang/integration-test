@@ -15,6 +15,7 @@ Agent skills for the OpenAN integration-testing workflow. Each skill lives in it
 | [e2e-failure-analyzer](#e2e-failure-analyzer) | Analyzes failures: extracts evidence, clusters, classifies root cause (5-class) | "analyze this failure log" |
 | [e2e-test-regression](#e2e-test-regression) | Fixes test code for items classified `E2E_CODE_BUG` | "fix the test code per this report" |
 | [e2e-issue-verifier](#e2e-issue-verifier) | Full-stack failure verification: minimal rerun, root-cause localization, Issue/PR write-back and handoff | "verify this e2e failure / handle this Issue" |
+| [e2e-issue-retest](#e2e-issue-retest) | Reruns the original failed cases for bug Issues labeled `status/pending-test` and drafts the close/keep-open write-back | "retest this pending Issue" |
 | [smoke-test](#smoke-test) | Not a skill — a smoke-test guide with sample inputs to validate the other skills | — |
 
 ## The Pipeline at a Glance
@@ -41,7 +42,8 @@ e2e-failure-analyzer  →  root-cause classification
         │
         ├─ E2E_CODE_BUG  → e2e-test-regression (fix test code)
         ├─ SOURCE_BUG    → github-issue-creator (new Issue)
-        └─ verify / close the loop → e2e-issue-verifier
+        ├─ verify / close the loop → e2e-issue-verifier
+        └─ fix merged + status/pending-test label → e2e-issue-retest (rerun failed cases)
 ```
 
 All case CSVs use the fixed **16-column** header (official 15 columns + `Component Deps` as the 5th column, UTF-8 with BOM):
@@ -197,6 +199,21 @@ Analyze and verify this failure: target repo <path>, backend Python case
 FIT-registry-center-agentcard-001 fails when running
 `python -m pytest skills/smoke-test/fixture/test_agent_register.py -q`,
 assertion 200 != 201.
+```
+
+## e2e-issue-retest
+
+**Reruns the original failed case(s)** once a bug Issue is fixed and labeled `status/pending-test`. Reruns only the reproduction command from the Issue (minimal scope), reports the first failure immediately, and drafts the Issue write-back (remove label + close on PASSED; keep-open comment with evidence on FAILED). Delegates execution to `e2e-test-runner`; hands failure evidence to `e2e-failure-analyzer`.
+
+- **Input gate (BLOCKED otherwise):** the Issue is open and carries the `status/pending-test` label; a reproduction command or failed-case identifier is present; `project_root` is known.
+- **Hard constraints:** never modifies code; never comments/closes/edits the Issue without explicit user authorization (write-back is a draft only).
+- **Outputs:** `latest.json`, `retest-result.md`, and a `github-issue-update-input.md` write-back draft under `<project_root>/.test-output/<timestamp>/`.
+
+```text
+/e2e-issue-retest
+
+Retest project-openan/registry-center#42. The repo is at <local path>;
+the reproduction command is in the Issue body.
 ```
 
 ## smoke-test
