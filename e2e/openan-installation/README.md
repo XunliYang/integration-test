@@ -35,8 +35,9 @@ The remaining 34 reviewed cases (P1/P2: config matrix, db-type, offline variants
 | --- | --- | --- |
 | `conftest.py` | — | Env loading (`e2e/.env`), marker registration, machine-profile gate |
 | `utils/env.py` | — | `.env` parsing + typed accessors for `OPENAN_INSTALL_*` |
-| `utils/shell.py` | — | Local command executor (subprocess, timeout, output capture, evidence saving), curl/kubectl helpers, wait/retry |
+| `utils/shell.py` | — | Local command executor (subprocess, timeout, output capture, evidence saving, cookie-jar curl), kubectl helpers, wait/retry |
 | `utils/helm_install.py` | — | Online Helm wizard driver (pexpect answers, install/uninstall, pod/platform helpers) |
+| `utils/oc_auth.py` | — | OC admin token flow incl. first-boot forced password change (403 → login → change-password → token) |
 | `utils/agentcard.py` | — | Minimal sample AgentCard fixture for registry data-persistence verification |
 | `test_binary_install.py` | FIT binary-install-001, binary-components-001 | Binary one-click install main paths |
 | `test_binary_serviceability.py` | DFX serviceability-001, serviceability-003 | Idempotent re-run; forced uninstall |
@@ -58,6 +59,7 @@ e2e/openan-installation/
 │   ├── env.py                    # .env contract accessors
 │   ├── shell.py                  # local shell/curl/kubectl executor + wait/retry
 │   ├── helm_install.py           # online Helm wizard driver (pexpect)
+│   ├── oc_auth.py                # admin token flow with first-boot password change
 │   └── agentcard.py              # sample AgentCard fixture
 ├── test_binary_install.py
 ├── test_binary_serviceability.py
@@ -171,3 +173,5 @@ Timeout guidance: single install cases take 3–10 minutes; pass `-m smoke` in P
 5. Agent registration (`DFX-reliability-001`) posts a minimal sample AgentCard fixture (`utils/agentcard.py`) with optional mTLS credentials from `REGISTRY_CLIENT_CERT/KEY`; if the Registry Center enforces JWS signatures or a stricter schema in this release, update the fixture accordingly.
 6. Offline-node cases invoke `sudo` and assume passwordless sudo (NOPASSWD) on the test hosts.
 7. LLM secrets (`OPENAN_INSTALL_LLM_API_KEY`, `OPENAN_INSTALL_ADMIN_PASSWORD`, `OPENAN_INSTALL_DB_PASSWORD`) live only in `e2e/.env` (never committed); interactive transcripts are saved under `EVIDENCE_DIR` and must be reviewed for accidental secret leakage before archiving evidence.
+8. First-boot admin token flow: the OC rejects the first `POST /api/v1/auth/token` with the initial password (403 Password change required, no token issued). `utils/oc_auth.py` performs the documented web flow (`/api/orchestrate/rest/v1/orchestrate/auth/login` → `/auth/change-password` → token) and derives the changed password as `<initial>1aA!`; on re-runs against kept data both passwords are tried.
+9. Compose `--eval` mode auto-generates the admin password; the compose case reads `OC_ADMIN_INITIAL_PASSWORD` from the generated runtime env files (requires sudo) instead of `OPENAN_INSTALL_ADMIN_PASSWORD`.

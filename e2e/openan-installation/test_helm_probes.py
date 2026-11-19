@@ -32,9 +32,10 @@ def test_chart_probes_rendered_and_pods_ready(require_profile):
     assert _probe_field("registry-center", "{.spec.template.spec.containers[0].livenessProbe.httpGet.path}") == "/health"
     assert _probe_field("registry-center", "{.spec.template.spec.containers[0].readinessProbe.httpGet.path}") == "/health"
     assert _probe_field("registry-center", "{.spec.template.spec.containers[0].livenessProbe.httpGet.port}") == "http"
-    oc_liveness = _probe_field("orchestration-center", "{.spec.template.spec.containers[0].livenessProbe.exec.command}")
-    assert "healthcheck" in oc_liveness, oc_liveness
-    assert _probe_field("orchestration-center", "{.spec.template.spec.containers[0].startupProbe.timeoutSeconds}") == "10"
+    assert _probe_field("orchestration-center", "{.spec.template.spec.containers[0].livenessProbe.tcpSocket.port}") == "http"
+    assert _probe_field("orchestration-center", "{.spec.template.spec.containers[0].readinessProbe.tcpSocket.port}") == "http"
+    assert _probe_field("orchestration-center", "{.spec.template.spec.containers[0].startupProbe.tcpSocket.port}") == "http"
+    assert _probe_field("orchestration-center", "{.spec.template.spec.containers[0].startupProbe.failureThreshold}") == "24"
     assert wait_until(all_pods_running_and_ready, timeout=600)
     pods = kubectl_jsonpath("pods", "{.items[*].status.containerStatuses[*].restartCount}")
     restart_counts = [value for value in pods.stdout.strip().strip("{}").split() if value]

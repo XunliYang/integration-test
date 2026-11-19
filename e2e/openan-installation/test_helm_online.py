@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from utils.env import install_config
@@ -10,6 +8,7 @@ from utils.helm_install import (
     require_helm_env,
     uninstall_online_helm,
 )
+from utils.oc_auth import get_admin_token
 from utils.shell import curl_request, kubectl, run, wait_until
 
 pytestmark = [
@@ -39,14 +38,9 @@ def test_helm_wizard_full_stack_platform_usable(require_profile):
     base = platform_base(install.output)
     _, home_status = curl_request("GET", f"{base}/")
     assert home_status == "200", base
-    token_body, token_status = curl_request(
-        "POST",
-        f"{base}/api/v1/auth/token",
-        data=json.dumps({"username": "admin", "password": cfg.admin_password}),
-        headers=["Content-Type: application/json"],
-    )
+    token_body, token_status, _ = get_admin_token(base, cfg.admin_password, evidence_stem="helm-online-001")
     assert token_status == "200", f"{token_status} {token_body}"
-    assert "token" in token_body.lower(), token_body
+    assert "access_token" in token_body, token_body
     uninstall = uninstall_online_helm(cfg)
     assert uninstall.exit_code == 0, uninstall.output
     releases = run(["helm", "ls", "-n", "openan"])

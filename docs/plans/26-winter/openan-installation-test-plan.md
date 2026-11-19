@@ -1,6 +1,6 @@
 # OpenAN Installation Test Plan
 
-> Version: v0.1 | Date: 2026-11-17 | Author: Installation WG test owner (TBD) | Review status: Pending review
+> Version: v0.2 | Date: 2026-11-19 | Author: Installation WG test owner (TBD) | Review status: Pending review
 > Related feature proposal: [openan-installation#2](https://github.com/project-openan/openan-installation/issues/2) · [#5](https://github.com/project-openan/openan-installation/issues/5) · [#9](https://github.com/project-openan/openan-installation/issues/9) · [#36](https://github.com/project-openan/openan-installation/issues/36) | Tracking issue: [integration-test#19](https://github.com/project-openan/integration-test/issues/19) | Version milestone: `26-winter`
 > Archive path: `docs/plans/26-winter/`
 
@@ -19,7 +19,7 @@ Verify that the system-level installation and deployment tooling (`openan-instal
 - Five installation lines: binary one-click (online), binary offline tarball, online Helm wizard, offline K8s bundle, offline compose stack
 - Modular component selection (`--reg`, wizard selection, chart values)
 - Configuration matrix: LLM configuration and validation, registry URL handling, unified `database.type` (bundled postgresql/mysql, external pass-through, compose `DATABASE_TYPE`), frontend type, non-interactive `--values` install, `--sample`, version pinning
-- Build tooling: image build/tag/push to a custom local registry, offline bundle build from local source trees
+- Build tooling: image build/tag/push to a custom local registry, offline bundle build from local source trees, binary offline bundle build (`pack.sh`)
 - DFX dimensions of the installer: testability (probes, external state identification), diagnosability (check-env, precheck failures), serviceability (idempotent install, in-place upgrade, uninstall completeness, data retention), reliability (PVC persistence, storage fallback, port conflict, MetalLB auto-provision), performance (HPA scaling), security (TLS material, secret masking, exposure surface), compatibility (multi-arch, distro families)
 
 **Out of scope** (excluded by the confirmed requirement boundary for this release):
@@ -127,9 +127,11 @@ Every case must carry the full set of labels in code: `feature` (openan-installa
 
 ### 5.4 Case Table
 
-Cases are carried in the 16-column CSV archived in the same directory as this plan: [`testcases-openan-installation.csv`](testcases-openan-installation.csv) — **46 cases: 23 FIT + 23 DFX**. The DFX dimension is declared per case in the `Notes` column (`DFX type`: DFT/DFD/DFS/DFR/DFP/DFNS/DFC) and mapped to the standard `Case Type` values (Deployment/Exception/Stability/Performance/Security/Compatibility Test).
+Cases are carried in the 16-column CSV archived in the same directory as this plan: [`testcases-openan-installation.csv`](testcases-openan-installation.csv) — **51 cases: 24 FIT + 27 DFX**. The DFX dimension is declared per case in the `Notes` column (`DFX type`: DFT/DFD/DFS/DFR/DFP/DFNS/DFC) and mapped to the standard `Case Type` values (Deployment/Exception/Stability/Performance/Security/Compatibility Test).
 
-Case table status: generated via the test-case generation skills, cross-checked for the FIT/DFX boundary, and case-reviewed 46/46 (advisory notes on input examples, execution windows, and automation carriers incorporated into the CSV notes). Review intermediates are not archived in this repository.
+Revision v0.2 (2026-11-19 coverage audit): fixed two stale chart-contract cases (testability-001 OC probes exec→tcpSocket; performance-001 retargeted from orchestration HPA — rejected by the chart — to openan-frontend HPA), corrected the first-boot admin token flow (initial password → 403 Password change required → change password → token), and added five audit-gap cases: online uninstall data preservation (serviceability-007), binary offline uninstall (serviceability-008), No-MetalLB NodePort fallback (reliability-005), compose config parser injection protection (security-006), binary offline bundle build (binary-pack-001).
+
+Case table status: generated via the test-case generation skills, cross-checked for the FIT/DFX boundary, case-reviewed, and audited against the repository architecture/QUICKSTART documents. Review intermediates are not archived in this repository.
 
 ### 5.5 Case Design Requirements
 

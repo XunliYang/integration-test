@@ -95,12 +95,15 @@ def curl_request(
     headers: list | None = None,
     timeout: int = 60,
     use_client_certs: bool = False,
+    cookie_jar=None,
 ):
     cmd = ["curl", "-k", "-s", "--max-time", str(timeout), "-X", method, "-w", "\n%{http_code}"]
     for header in headers or []:
         cmd += ["-H", header]
     if data is not None:
         cmd += ["-d", data]
+    if cookie_jar is not None:
+        cmd += ["-c", str(cookie_jar), "-b", str(cookie_jar)]
     if use_client_certs:
         cert = os.getenv("REGISTRY_CLIENT_CERT", "").strip()
         key = os.getenv("REGISTRY_CLIENT_KEY", "").strip()
