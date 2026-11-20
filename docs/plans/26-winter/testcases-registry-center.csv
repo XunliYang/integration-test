@@ -1,0 +1,353 @@
+﻿Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Priority,Precondition,Steps,Expected Result,Automatable,Automated Test,Dev Owner,Test Owner,Notes
+26-winter,PostgreSQL backend stores and serves AgentCards,[FIT-registry-center-db-adaptation-001],registry-center,n/a,https://github.com/project-openan/registry-center/issues/26;https://github.com/project-openan/integration-test/issues/3,Functional Test,P0,"1. registry-center image <IMAGE_TAG> is deployed and a PostgreSQL 14+ instance is reachable from the service
+2. etc/conf/db/postgresql.json sets host/port/database/user and names its credential with password_env=REGISTRY_DB_SECRET; REGISTRY_DB_SECRET is injected into the service environment
+3. etc/conf/persistence.conf sets persistence.mode=postgresql
+4. A signed AgentCard sample (name test-pg-agent, provider.organization test-org) is stored at <CARD_FILE>","1. Start registry-center and poll GET /health until it returns 200 (see result 1)
+2. POST /rest/v1/registry-center/agent-cards with body {""agentCards"":[<card from <CARD_FILE>>]} (see result 2)
+3. GET /rest/v1/registry-center/agent-cards?name=test-pg-agent&organization=test-org (see result 3)
+4. Run SELECT name, organization, status FROM agent_card WHERE name='test-pg-agent' against the configured database (see result 4)
+5. Cleanup: DELETE /rest/v1/registry-center/agent-cards/test-org/test-pg-agent (see result 5)","1. GET /health returns 200 with {""status"":""ok""} and the startup log reports PostgreSQL storage initialized (no fallback to file storage)
+2. Returns 201 and results[0] carries name=test-pg-agent, organization=test-org, status=published, registrySigned=true
+3. Returns 200, agentCards holds exactly one card whose name and provider.organization match the payload
+4. Exactly one row exists with status 'published' in the configured database and data/agentcard.json does not contain the card
+5. Returns 200 with name, organization and deleted=true; the SELECT in step 4 returns 0 rows afterwards",Yes,,,,design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;persistence.mode values are file/postgresql/sqlite/gauss/mysql;verification source: agent_registry/persistence/__init__.py#L75-L92 (backend selection) and agent_registry/server.py#L903-L1025 (register flow)
+26-winter,MySQL backend stores and serves AgentCards,[FIT-registry-center-db-adaptation-002],registry-center,n/a,https://github.com/project-openan/registry-center/issues/26;https://github.com/project-openan/integration-test/issues/3,Functional Test,P0,"1. registry-center image <IMAGE_TAG> is deployed and a MySQL 8 instance is reachable from the service
+2. etc/conf/db/mysql.json sets host/port, database=registry_center, user, and password_env=REGISTRY_DB_SECRET; REGISTRY_DB_SECRET is injected
+3. etc/conf/persistence.conf sets persistence.mode=mysql
+4. A signed AgentCard sample (name test-mysql-agent, provider.organization test-org) is available","1. Start registry-center and poll GET /health until it returns 200 (see result 1)
+2. POST /rest/v1/registry-center/agent-cards with the sample card (see result 2)
+3. PUT /rest/v1/registry-center/agent-cards/test-org/test-mysql-agent with a changed description (see result 3)
+4. GET /rest/v1/registry-center/agent-cards/test-org/test-mysql-agent (see result 4)
+5. Cleanup: DELETE /rest/v1/registry-center/agent-cards/test-org/test-mysql-agent (see result 5)","1. GET /health returns 200 and the startup log reports the MySQL pool with the configured host:port
+2. Returns 201 with results[0].status=published and registrySigned=true
+3. Returns 200 with results[0].name=test-mysql-agent; the MySQL dialect reports the changed row as an applied update
+4. Returns 200 and agentCards[0].description equals the value written in step 3 (update persisted in MySQL)
+5. Returns 200 deleted=true; a re-query of the card in step 4 returns an empty agentCards list",Yes,,,,design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;MySQL dialect reports changed rows instead of matched rows on update;verification source: agent_registry/persistence/mysql_storage.py#L75-L105 (init and dialect notes) and agent_registry/persistence/__init__.py#L89-L91
+26-winter,Default file backend serves AgentCards without SQL,[FIT-registry-center-db-adaptation-003],registry-center,n/a,https://github.com/project-openan/registry-center/issues/26;https://github.com/project-openan/integration-test/issues/3,Functional Test,P1,"1. registry-center started locally from docker-compose.yml with no etc/conf/db/<brand>.json profile present
+2. etc/conf/persistence.conf keeps the shipped default persistence.mode=file
+3. data/ and log/ host directories are mounted and empty before the run","1. docker compose up -d and poll GET /health until it returns 200 (see result 1)
+2. POST /rest/v1/registry-center/agent-cards with one valid signed card (see result 2)
+3. Check data/agentcard.json on the mounted host directory and GET /rest/v1/registry-center/agent-cards?name=test-file-agent (see result 3)
+4. Cleanup: DELETE the card and run docker compose down (see result 4)","1. GET /health returns 200 with status ok and the startup log contains no SQL pool initialization
+2. Returns 201 with results[0].status=published
+3. data/agentcard.json exists and contains the card, and the query returns exactly one card (file mode needs no SQL profile)
+4. DELETE returns 200 deleted=true, data/agentcard.json no longer contains the card, and compose down removes the container",Yes,,,,design_method:Equivalence Partitioning;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;file is the documented default backend;verification source: agent_registry/persistence/__init__.py#L78-L79 (FileStorage branch) and agent_registry/core.py#L108-L120
+26-winter,DB credential resolves from a named env secret,[FIT-registry-center-db-adaptation-004],registry-center,n/a,https://github.com/project-openan/registry-center/issues/26;https://github.com/project-openan/integration-test/issues/3,Functional Test,P1,"1. registry-center deployed with persistence.mode=postgresql and the PostgreSQL instance reachable
+2. etc/conf/db/postgresql.json carries host/port/database/user plus password_env=REGISTRY_DB_SECRET only
+3. REGISTRY_DB_SECRET is provided through the process environment or the untracked .env, never baked into the image","1. Inspect etc/conf/db/postgresql.json inside the running container (see result 1)
+2. Poll GET /health until 200 and register one card test-secret-agent (see result 2)
+3. GET the card back and read the startup log line describing the PostgreSQL target (see result 3)
+4. Cleanup: delete the card, stop the service and restore the profile and secret reference (see result 4)","1. The profile contains password_env with the value REGISTRY_DB_SECRET and no password or token literal
+2. GET /health returns 200 and registration returns 201 (the named reference was resolved and the pool connected)
+3. The card is returned and the log names host, database and user without printing the secret value
+4. DELETE returns 200 deleted=true and the container stops with the profile and secret reference restored to the pre-test state",Yes,,,,design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;literal secrets and credentials embedded in a URI are rejected at load;verification source: docs/database-configuration.md#L37-L50 (password_env reference rules) and common/util/database_config.py#L95-L104
+26-winter,SQLite backend stores and serves AgentCards,[FIT-registry-center-db-adaptation-005],registry-center,n/a,https://github.com/project-openan/registry-center/issues/26;https://github.com/project-openan/integration-test/issues/3,Functional Test,P1,"1. registry-center started locally from docker-compose.yml with etc/conf/db/sqlite.json setting path=data/agents.db (relative paths resolve from the project root)
+2. etc/conf/persistence.conf sets persistence.mode=sqlite
+3. The mounted data/ directory is writable by the service account","1. docker compose up -d and poll GET /health until it returns 200 (see result 1)
+2. POST /rest/v1/registry-center/agent-cards with the signed card test-sqlite-agent (see result 2)
+3. GET the card back and run SELECT name, organization, status FROM agent_card over the same database file (see result 3)
+4. Cleanup: DELETE the card, re-run the SELECT and stop compose (see result 4)","1. GET /health returns 200 with status ok and the startup log reports the SQLite storage path
+2. Returns 201 with results[0].status=published
+3. The query returns exactly one card and the SQLite SELECT returns one row with status 'published' (the SQL backends share the same schema)
+4. DELETE returns 200 deleted=true, the SELECT returns 0 rows and compose down removes the container",Yes,,,,design_method:Equivalence Partitioning;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;SQLite shares SqlStorageBackend and the agent_card schema with the server backends;verification source: agent_registry/persistence/__init__.py#L83-L85 (sqlite branch) and agent_registry/persistence/sqlite_storage.py#L36-L74 (path key and table bootstrap)
+26-winter,GaussDB backend stores and serves AgentCards,[FIT-registry-center-db-adaptation-006],registry-center,n/a,https://github.com/project-openan/registry-center/issues/26;https://github.com/project-openan/integration-test/issues/3,Functional Test,P2,"1. A GaussDB instance (PostgreSQL protocol) is reachable at <GAUSS_HOST>:<GAUSS_PORT> and the registry user <GAUSS_USER> may create the a2a_registry database
+2. etc/conf/db/gaussdb.json sets host/port, database=a2a_registry, user=<GAUSS_USER> and password_env=REGISTRY_DB_SECRET
+3. etc/conf/persistence.conf sets persistence.mode=gauss","1. Start registry-center and poll GET /health until 200 (see result 1)
+2. POST /rest/v1/registry-center/agent-cards with the signed card test-gauss-agent and query it back (see result 2)
+3. Run SELECT name, organization, status FROM agent_card against the GaussDB database (see result 3)
+4. Cleanup: DELETE the card, re-run the SELECT and drop the test rows (see result 4)","1. GET /health returns 200 and the startup log reports the GaussDB target with the configured host:port
+2. Registration returns 201 with status published and the query returns the card
+3. One row exists with status 'published' in the configured a2a_registry database
+4. DELETE returns 200 deleted=true and the SELECT returns 0 rows",Yes,,,,design_method:Equivalence Partitioning;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;PostgreSQL and GaussDB share connection.py bootstrap but keep separate query enums; the instance is provisioned by the Integration Testing WG (plan R-11);verification source: agent_registry/persistence/__init__.py#L86-L88 (gauss branch) and agent_registry/persistence/gaussdb_storage.py#L54-L64
+26-winter,Persistence mode switch needs a restart,[FIT-registry-center-db-adaptation-007],registry-center,n/a,https://github.com/project-openan/registry-center/issues/26;https://github.com/project-openan/integration-test/issues/3,Functional Test,P1,"1. registry-center running locally from docker-compose.yml with persistence.mode=file and card test-switch-agent registered
+2. A PostgreSQL instance is reachable from the compose network with etc/conf/db/postgresql.json ready","1. Record the current list with GET /rest/v1/registry-center/agent-cards (see result 1)
+2. Change persistence.conf to persistence.mode=postgresql while the service keeps running, then GET the list and register test-switch-2 (see result 2)
+3. Query the agent_card table in PostgreSQL for the pre-existing card (see result 3)
+4. Restart the container and GET the list again (see result 4)
+5. Cleanup: delete both cards where they exist and restore persistence.mode=file (see result 5)","1. Returns 200 and the list contains test-switch-agent (file backend)
+2. The running instance keeps answering from the file backend: test-switch-agent is still listed and test-switch-2 registers with 201; no online hot migration happens
+3. PostgreSQL holds no row for the pre-existing test-switch-agent (the switch only affects a restarted process)
+4. After the restart the list is served by PostgreSQL and contains test-switch-2 but not the file-only card
+5. Deletions return 200 deleted=true and persistence.mode is back to file",Yes,,,,"design_method:State Transition;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;issue #3 explicitly excludes online hot migration; the restart here applies a configuration change and is not failure recovery (no DFR scenario);verification source: docs/database-configuration.md#L27-L31 (restart required, fixed connection and dialect)"
+26-winter,External MySQL instance serves AgentCard CRUD,[FIT-registry-center-third-party-db-001],registry-center,n/a,https://github.com/project-openan/registry-center/issues/28;https://github.com/project-openan/integration-test/issues/5,Functional Test,P0,"1. A customer-managed MySQL 8 instance is reachable at <MYSQL_HOST>:<MYSQL_PORT> (non-default port) and the user may create the registry_center database
+2. etc/conf/db/mysql.json sets that host/port, database=registry_center, user=<MYSQL_USER> and password_env=MYSQL_PASSWORD
+3. MYSQL_PASSWORD is injected through the environment; persistence.mode=mysql on the deployed registry-center","1. Start registry-center and poll GET /health until 200 (see result 1)
+2. Check the schema created inside the external instance (see result 2)
+3. POST /rest/v1/registry-center/agent-cards with a signed card and read it back with GET (see result 3)
+4. Cleanup: DELETE the card and run a direct count for its key (see result 4)","1. GET /health returns 200 and the startup log reports the MySQL pool for the configured host:port
+2. Tables agent_card, tag and agent_status_history exist in registry_center of the external instance
+3. Registration returns 201 and the query returns the card with status published
+4. DELETE returns 200 deleted=true and the direct count is 0",Yes,,,,design_method:Equivalence Partitioning;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;third-party instance supplied by the Integration Testing WG;verification source: agent_registry/persistence/mysql_storage.py#L75-L105 and agent_registry/persistence/connection.py#L61-L102 (DDL bootstrap)
+26-winter,Missing PostgreSQL database is created at startup,[FIT-registry-center-third-party-db-002],registry-center,n/a,https://github.com/project-openan/registry-center/issues/28;https://github.com/project-openan/integration-test/issues/5,Functional Test,P0,"1. A customer-managed PostgreSQL instance is reachable and database <DB_NAME> does not exist yet
+2. The registry user <PG_USER> has CREATE DATABASE privilege
+3. etc/conf/db/postgresql.json points at the instance with database=<DB_NAME>, user=<PG_USER>, password_env=REGISTRY_DB_SECRET; persistence.mode=postgresql","1. Confirm the database is absent with psql -l (see result 1)
+2. Start registry-center and poll GET /health until 200 (see result 2)
+3. Register one card and query it back (see result 3)
+4. Cleanup: DELETE the card and DROP DATABASE <DB_NAME> (see result 4)","1. psql -l does not list <DB_NAME>
+2. GET /health returns 200 and <DB_NAME> now exists with the agent_card schema created by the backend bootstrap
+3. Registration returns 201 with status published and the query returns the card
+4. DELETE returns 200 deleted=true and DROP DATABASE <DB_NAME> succeeds",Yes,,,,"design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;database creation is part of backend init, not a migration;verification source: agent_registry/persistence/connection.py#L22-L38 (ensure_pg_database) and agent_registry/persistence/postgresql_storage.py#L55-L63"
+26-winter,Milvus backend stores AgentCard embeddings,[FIT-registry-center-third-party-db-003],registry-center,n/a,https://github.com/project-openan/registry-center/issues/28;https://github.com/project-openan/integration-test/issues/5,Functional Test,P1,"1. Milvus (milvus-lite or standalone) is reachable and etc/conf/db/milvus.json sets uri and version
+2. server.conf sets use_vectordb=true and the embedding model is defined in etc/config/models.yaml with its named secret
+3. registry-center runs locally from docker-compose.yml","1. Start the service and poll GET /health until 200 (see result 1)
+2. POST /rest/v1/registry-center/agent-cards with card test-vec-agent (see result 2)
+3. Query collection agent_card_collection with the Milvus client (see result 3)
+4. Cleanup: delete the entity from the collection and stop the service (see result 4)","1. GET /health returns 200 with status ok
+2. Returns 201 with results[0].status=published (the write path embeds the card description)
+3. The collection holds one entity for test-vec-agent whose embedding field has 1024 dimensions under a FLAT/L2 index
+4. The collection is empty afterwards and the container is removed",Yes,,,,"design_method:Scenario Method;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;vector client is the only supported vector backend type;verification source: common/vector_db/vector_db_client/milvus_client.py#L73-L160 (collection, dim 1024, FLAT/L2, insert) and agent_registry/core.py#L215-L225"
+26-winter,Vector-only mode refuses authoritative queries,[FIT-registry-center-third-party-db-004],registry-center,n/a,https://github.com/project-openan/registry-center/issues/28;https://github.com/project-openan/integration-test/issues/5,Exception Test,P1,"1. registry-center runs locally with use_vectordb=true and a reachable Milvus profile
+2. One card was registered through the vector path
+3. startup.strict.storage keeps the documented default false so the process starts and reports the condition","1. GET /rest/v1/registry-center/agent-cards (see result 1)
+2. GET /rest/v1/registry-center/agent-cards/{organization}/{name} (see result 2)
+3. POST /rest/v1/registry-center/agent-cards/semantic-query with {""task"":""query intent report""} (see result 3)
+4. Cleanup: remove the vector entity and stop the service (see result 4)","1. Returns 503 with errors.error[0].errorMessage stating that use_vectordb=true replaced the authoritative record store
+2. Returns 503 with the same authoritative-store error instead of 404 or an empty agentCards list
+3. Returns 503: approval status cannot be answered from the index, so no agentCards is fabricated
+4. The collection is empty and the container is removed",Yes,,,,design_method:Error Guessing;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;replacement-store semantics are documented in docs/database-configuration.md#L18-L21;verification source: agent_registry/errors.py#L20-L41 and agent_registry/core.py#L137-L156 plus server.py#L392-L415 (503 mapping)
+26-winter,Vector similarity ranking is not available today,[FIT-registry-center-third-party-db-005],registry-center,n/a,https://github.com/project-openan/registry-center/issues/28;https://github.com/project-openan/integration-test/issues/5,Functional Test,P2,"1. Promised, not shipped: issue #5 requires embedding similarity retrieval, but use_vectordb=true replaces the authoritative record store so retrieve_by_task raises before any similarity search (agent_registry/core.py#L137-L156, agent_registry/errors.py#L20-L41)
+2. A deployment with use_vectordb=true and a reachable Milvus profile is running and one embedded card is registered
+3. Candidate similarity routes are named here for the probe only: POST /rest/v1/registry-center/agent-cards/similarity-search and GET /rest/v1/registry-center/agent-cards?semantic_task=; neither is registered in agent_registry/server.py","1. Probe the promised surface: POST /rest/v1/registry-center/agent-cards/semantic-query with {""task"":""reduce RAN energy consumption""} on the vector-mode deployment, then POST /rest/v1/registry-center/agent-cards/similarity-search with the same body (see result 1)
+2. Cleanup: remove the embedded card from the collection and stop the vector-mode deployment (see result 2)","1. No similarity-ranking surface answers: semantic-query returns 503 whose errors.error[0].errorMessage states that use_vectordb=true replaced the authoritative record store, and the candidate route /agent-cards/similarity-search returns 404 with the framework default body {""detail"":""Not Found""} (not the application errors envelope), so nothing in this deployment ranks cards by embedding distance today
+2. The collection no longer holds the card and the deployment is stopped",No,,,,"design_method:Boundary Value Analysis;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;promised, not shipped - kept against the issue #5 promise because the shipped vector mode replaces the record store and answers 503 before similarity search runs (see plan R-2);verification source: common/vector_db/vector_db_client/milvus_client.py#L243-L277 (retrieve_entity exists in the client but has no HTTP route) and agent_registry/server.py route table"
+26-winter,Invalid DB profile is rejected before startup,[FIT-registry-center-third-party-db-006],registry-center,n/a,https://github.com/project-openan/registry-center/issues/28;https://github.com/project-openan/integration-test/issues/5,Exception Test,P2,"1. registry-center deployment with a working PostgreSQL profile
+2. The profile file is editable and the service can be restarted on demand","1. Replace the profile with one that carries a literal ""password"" field and start the service (see result 1)
+2. Restore password_env but remove REGISTRY_DB_SECRET from the environment and start again (see result 2)
+3. Add an unknown field such as ""sslmode"" to the profile and start again (see result 3)
+4. Cleanup: restore the valid profile and secret and confirm GET /health returns 200 (see result 4)","1. Startup fails with an unsupported or literal-secret field error naming db/postgresql.json, and nothing listens on port 5000 because the storage pre-check runs before any port is bound
+2. Startup fails with an error stating that REGISTRY_DB_SECRET is not set
+3. Startup fails with a db/postgresql.json field-validation error naming the rejected field (unknown fields are not ignored)
+4. The restored profile starts and GET /health returns 200",Yes,,,,"design_method:Error Guessing;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;validation happens at profile load, before the pool is built; this is the single profile-validation negative of the plan;verification source: common/util/database_config.py#L45-L140 (duplicate key, literal-secret, missing reference, bounds, uri credential checks)"
+26-winter,Heartbeat report echoes detection config,[FIT-registry-center-heartbeat-001],registry-center,n/a,https://github.com/project-openan/registry-center/issues/29;https://github.com/project-openan/integration-test/issues/6,Functional Test,P0,"1. registry-center deployed with heartbeat.enabled=true, heartbeat.interval=5, heartbeat.failure.threshold=2, heartbeat.grace.period=0
+2. Card <org>/hb-agent-1 is registered and published","1. POST /rest/v1/registry-center/agent-cards/<org>/hb-agent-1/heartbeat (see result 1)
+2. GET /rest/v1/registry-center/agents/health?status=healthy (see result 2)
+3. Cleanup: DELETE /rest/v1/registry-center/agent-cards/<org>/hb-agent-1 (see result 3)","1. Returns 200 with heartbeat_enabled=true, interval=5, failure_threshold=2, grace_period=0, health_status=healthy and server_time present
+2. Returns 200; agents contains hb-agent-1 with health_status=healthy and last_heartbeat_at, and config echoes interval=5, failure_threshold=2, grace_period=0
+3. Returns 200 deleted=true and agents/health no longer lists hb-agent-1",Yes,,,,"design_method:Equivalence Partitioning;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;reply carries the effective detection config so agents can align;verification source: agent_registry/server.py#L1669-L1725 (heartbeat reply) and agent_registry/health/__init__.py#L36-L43, L79-L88"
+26-winter,Agent past the failure threshold becomes offline,[FIT-registry-center-heartbeat-002],registry-center,n/a,https://github.com/project-openan/registry-center/issues/29;https://github.com/project-openan/integration-test/issues/6,Functional Test,P0,"1. heartbeat.enabled=true, heartbeat.interval=3, heartbeat.failure.threshold=2, heartbeat.grace.period=0, heartbeat.sweep.interval=1, heartbeat.hide.unhealthy.results=true
+2. Card <org>/hb-agent-2 is registered and published
+3. No other card in <org> is reporting heartbeats","1. Send one heartbeat for hb-agent-2 and stop reporting (see result 1)
+2. Poll GET /rest/v1/registry-center/agents/health/history?name=hb-agent-2 until the offline transition is recorded (see result 2)
+3. GET /rest/v1/registry-center/agents/health?status=offline (see result 3)
+4. GET /rest/v1/registry-center/agent-cards?name=hb-agent-2 (see result 4)
+5. Cleanup: DELETE the card and re-read agents/health (see result 5)","1. The heartbeat returns 200 with health_status=healthy
+2. The history (newest first) records the healthy to suspect and suspect to offline transitions for hb-agent-2 as previous_health_status/health_status pairs with changed_at timestamps; the sequence is asserted, not the elapsed time
+3. The agent is listed with health_status=offline and a status_changed_at
+4. The card is absent from the discovery list while agents/health still shows it as offline
+5. DELETE returns 200 and agents/health no longer contains the agent",Yes,,,,"design_method:State Transition;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;the suspect window is only interval*1+grace wide, so the case asserts the recorded transition sequence through the history endpoint instead of a wall-clock bound;verification source: agent_registry/health/state.py#L29-L43 (window math), agent_registry/health/store.py#L119-L141 (history pairs) and server.py#L1765-L1787"
+26-winter,Registration change is delivered to a subscriber,[FIT-registry-center-heartbeat-003],registry-center,n/a,https://github.com/project-openan/registry-center/issues/29;https://github.com/project-openan/integration-test/issues/6,Functional Test,P0,"1. broadcast.enabled=true, broadcast.allow.http.callbacks=true, broadcast.callback.allowlist=<RECEIVER_HOST>
+2. An HTTP receiver at http://<RECEIVER_HOST>:<PORT>/hook records request bodies and X-Registry-* headers
+3. broadcast timing keeps the shipped defaults (broadcast.debounce.window=2.0)","1. POST /rest/v1/registry-center/subscriptions with callback_url http://<RECEIVER_HOST>:<PORT>/hook, event_types [""AGENT_REGISTERED""], filters.organizations [""<org>""] and secret <SECRET> (see result 1)
+2. POST /rest/v1/registry-center/agent-cards with card <org>/bc-agent-1 (see result 2)
+3. Wait for the receiver to record a delivery using the framework retry helper (see result 3)
+4. GET /rest/v1/registry-center/changes?since=0 (see result 4)
+5. Cleanup: DELETE the subscription and the card, then confirm no further delivery arrives (see result 5)","1. Returns 201 with subscription_id matching sub_<20 hex chars>, the callback_url and event_types echoed, and the secret is never echoed in the response body
+2. Returns 201 with results[0].status=published
+3. The receiver recorded one POST whose body holds subscription_id and events[] with event_type AGENT_REGISTERED and data.name=bc-agent-1, plus X-Registry-Event-Id, X-Registry-Timestamp headers and X-Registry-Signature whose value equals the HMAC computed over timestamp + body with <SECRET>
+4. Returns 200; changes contains the AGENT_REGISTERED event for bc-agent-1 with a registry_version and next_since not below it
+5. Both deletions return 200 and no further delivery is recorded afterwards",Yes,,,,"design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;callback allowlist and HTTP switch are enforced at subscription time;verification source: agent_registry/broadcast/dispatcher.py#L402-L424 (payload, HMAC headers) and agent_registry/server.py#L1855-L1901, L1945-L1967"
+26-winter,Health transition history records state changes,[FIT-registry-center-heartbeat-004],registry-center,n/a,https://github.com/project-openan/registry-center/issues/29;https://github.com/project-openan/integration-test/issues/6,Functional Test,P1,"1. heartbeat.enabled=true with heartbeat.interval=3, heartbeat.failure.threshold=2, heartbeat.grace.period=0, heartbeat.sweep.interval=1
+2. Card <org>/hb-agent-3 is registered, published and heartbeating","1. Stop reporting and poll agents/health until hb-agent-3 is offline (see result 1)
+2. Send one heartbeat again (see result 2)
+3. GET /rest/v1/registry-center/agents/health/history?name=hb-agent-3&limit=10 (see result 3)
+4. Cleanup: DELETE the card and re-read the history (see result 4)","1. agents/health shows the healthy to suspect to offline transitions for hb-agent-3
+2. The heartbeat returns 200 with health_status=healthy (recovery is reported by the registry, which performs no self-healing)
+3. Returns 200 with history newest first holding at least healthy to suspect, suspect to offline and offline to healthy entries, each with previous_health_status, health_status and changed_at
+4. DELETE returns 200 deleted=true and the history endpoint returns no further entries for the agent",Yes,,,,design_method:State Transition;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;history endpoint answers 503 while heartbeat detection is disabled;verification source: agent_registry/health/store.py#L119-L141 (history entry shape) and server.py#L1765-L1787
+26-winter,Subscription filters limit delivered change events,[FIT-registry-center-heartbeat-005],registry-center,n/a,https://github.com/project-openan/registry-center/issues/29;https://github.com/project-openan/integration-test/issues/6,Functional Test,P1,"1. broadcast.enabled=true with HTTP callbacks allowed and <RECEIVER_HOST> in broadcast.callback.allowlist
+2. Two organizations <org-a> and <org-b> are available for registration; the receiver records deliveries per event","1. Create one subscription with event_types [""AGENT_REGISTERED""] and filters.organizations [""<org-a>""] (see result 1)
+2. Register card <org-b>/bc-filter-b (see result 2)
+3. Register card <org-a>/bc-filter-a (see result 3)
+4. Cleanup: delete both cards and the subscription (see result 4)","1. Returns 201 with the subscription_id and the echoed filters
+2. The receiver records no delivery carrying the <org-b> card within the debounce window plus one retry budget (organization filter applied)
+3. The receiver records exactly one delivery whose events hold the AGENT_REGISTERED event for bc-filter-a
+4. All deletions return 200 and no further event is delivered",Yes,,,,"design_method:Decision Table;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;filter semantics: event type, organization and tag set intersection;verification source: agent_registry/broadcast/subscriptions.py#L58-L69 (event_matches filters) and server.py#L1878-L1901"
+26-winter,Unlisted callback host is rejected on subscription,[FIT-registry-center-heartbeat-006],registry-center,n/a,https://github.com/project-openan/registry-center/issues/29;https://github.com/project-openan/integration-test/issues/6,Exception Test,P2,"1. broadcast.enabled=true and broadcast.callback.allowlist holds only the authorized host
+2. broadcast.allow.http.callbacks=false (shipped default)","1. POST /rest/v1/registry-center/subscriptions with a callback_url whose host is not in the allowlist (see result 1)
+2. POST the same with an http URL on the allowlisted host (see result 2)
+3. POST without callback_url (see result 3)
+4. Cleanup: confirm no subscription exists and the configuration is unchanged (see result 4)","1. Returns 422 with the message that the callback host is not authorized by broadcast.callback.allowlist
+2. Returns 422 with the message that HTTP callbacks are disabled and HTTPS is required
+3. Returns 422 stating that callback_url is required
+4. GET /rest/v1/registry-center/subscriptions returns an empty subscriptions list and the configured switches are unchanged",Yes,,,,design_method:Error Guessing;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;the allowlist is re-validated at delivery time as well;verification source: agent_registry/broadcast/callback_policy.py#L11-L26 and server.py#L1871-L1887
+26-winter,Heartbeat for an unregistered agent returns 404,[FIT-registry-center-heartbeat-007],registry-center,n/a,https://github.com/project-openan/registry-center/issues/29;https://github.com/project-openan/integration-test/issues/6,Exception Test,P2,"1. heartbeat.enabled=true on the running service
+2. No card named hb-missing exists under <org>","1. POST /rest/v1/registry-center/agent-cards/<org>/hb-missing/heartbeat (see result 1)
+2. GET /rest/v1/registry-center/agents/health (see result 2)
+3. GET /rest/v1/registry-center/agents/health/history?name=hb-missing (see result 3)
+4. Cleanup: confirm no card and no health record were created (see result 4)","1. Returns 404 with detail Agent not found and no health state is recorded
+2. The list holds no hb-missing entry
+3. Returns 200 with an empty history list
+4. GET /rest/v1/registry-center/agent-cards/<org>/hb-missing returns 200 with an empty agentCards list and the health surfaces stay unchanged",Yes,,,,design_method:Error Guessing;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;liveness claims are rejected for unknown cards;verification source: agent_registry/server.py#L1699-L1704 (missing record rejected before recording)
+26-winter,"Knowledge graph node is created, read and updated",[FIT-registry-center-knowledge-graph-001],registry-center,n/a,https://github.com/project-openan/integration-test/issues/7,Functional Test,P0,"1. registry-center deployed with knowledge_graph.enabled=true in etc/conf/server.conf
+2. Neo4j is reachable with persistence.conf neo4j.uri/username/password configured
+3. The test caller's verified identity is listed in knowledge_graph.allowed.owners (server.properties)","1. POST /rest/v1/registry-center/knowledge-graph/nodes with {""labels"":[""Agent""],""properties"":{""name"":""kg-node-a"",""domain"":""ran""}} (see result 1)
+2. GET /rest/v1/registry-center/knowledge-graph/nodes/<id> with the returned id (see result 2)
+3. PUT /rest/v1/registry-center/knowledge-graph/nodes/<id> with {""properties"":{""domain"":""core""}} (see result 3)
+4. Cleanup: DELETE /rest/v1/registry-center/knowledge-graph/nodes/<id> (see result 4)","1. Returns 201 with success=true and data.id, data.labels=[Agent], data.properties.name=kg-node-a
+2. Returns 200 with data.id equal to the created id and unchanged properties
+3. Returns 200 with data.properties.domain=core while name=kg-node-a is retained (properties are merged)
+4. Returns 204 and a follow-up GET returns 404 with detail Node not found",Yes,,,,"design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;labels must match [A-Za-z_][A-Za-z0-9_]*;verification source: agent_registry/knowledge_graph_api/router.py#L123-L150 (prefix and guard), L229-L330 (node CRUD)"
+26-winter,Relation between two nodes is created and read,[FIT-registry-center-knowledge-graph-002],registry-center,n/a,https://github.com/project-openan/integration-test/issues/7,Functional Test,P0,"1. knowledge_graph.enabled=true, Neo4j reachable, caller in knowledge_graph.allowed.owners
+2. Two nodes kg-src and kg-dst are created inside this case","1. POST /nodes twice to create kg-src and kg-dst (see result 1)
+2. POST /relationships with {""type"":""DEPENDS_ON"",""startNodeId"":<src>,""endNodeId"":<dst>,""properties"":{""weight"":1}} (see result 2)
+3. GET /relationships/<id> with the returned relation id (see result 3)
+4. Cleanup: DELETE the relation, then DELETE both nodes with force=true (see result 4)","1. Both creates return 201 with distinct node ids
+2. Returns 201 with data.type=DEPENDS_ON, data.startNodeId and data.endNodeId matching the created nodes, data.properties.weight=1
+3. Returns 200 with the same id, type, startNodeId, endNodeId and properties
+4. The relation deletion returns 204, both node deletions return 204 and each GET returns 404",Yes,,,,design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;relationship type is validated as a Cypher identifier;verification source: agent_registry/knowledge_graph_api/router.py#L442-L533 (relationship create/read)
+26-winter,Graph view endpoint returns the render contract,[FIT-registry-center-knowledge-graph-003],registry-center,n/a,https://github.com/project-openan/integration-test/issues/7,Functional Test,P1,"1. knowledge_graph.enabled=true, Neo4j reachable, caller in knowledge_graph.allowed.owners
+2. The graph is empty for the label used by this case","1. Create two nodes labelled KgView and one DEPENDS_ON relation with a known property (see result 1)
+2. GET /rest/v1/registry-center/knowledge-graph/graph?limit=1000 (see result 2)
+3. Cross-check the returned ids and endpoints against the created elements (see result 3)
+4. Cleanup: delete the relation and both nodes with force=true (see result 4)","1. All three creates return 201
+2. Returns 200 with success=true and data.nodes[] entries carrying id, labels, properties plus data.relationships[] entries carrying id, type, startNodeId, endNodeId, properties
+3. Every created element appears exactly once and each relationship's startNodeId and endNodeId reference two returned node ids
+4. All deletions return 204 and the graph no longer contains the elements",Yes,,,,design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;this payload is the visualisation data contract;verification source: agent_registry/knowledge_graph_api/router.py#L603-L649 (nodes plus relationships payload)
+26-winter,Bulk graph load is exportable with a label filter,[FIT-registry-center-knowledge-graph-004],registry-center,n/a,https://github.com/project-openan/integration-test/issues/7,Functional Test,P1,"1. knowledge_graph.enabled=true, Neo4j reachable, caller in knowledge_graph.allowed.owners
+2. Label KgBulk is unused before the run","1. POST /bulk/nodes with three nodes labelled KgBulk (see result 1)
+2. POST /bulk/relationships with two relations between those nodes (see result 2)
+3. GET /export?filter=label:KgBulk&format=json (see result 3)
+4. Cleanup: delete the three nodes with force=true and export again (see result 4)","1. Returns 201 and the created node count is 3
+2. Returns 201 with 2 relation ids
+3. Returns 200 JSON holding exactly the 3 KgBulk nodes and the 2 relations between them
+4. Deletions return 204 each and the repeated export returns 200 with zero nodes for the label",Yes,,,,design_method:Equivalence Partitioning;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;bulk create caps a request at 1000 nodes;verification source: agent_registry/knowledge_graph_api/router.py#L656-L740 (bulk create) and L857-L924 (export filter)
+26-winter,Node with relations needs force to delete,[FIT-registry-center-knowledge-graph-005],registry-center,n/a,https://github.com/project-openan/integration-test/issues/7,Exception Test,P2,"1. knowledge_graph.enabled=true, Neo4j reachable, caller in knowledge_graph.allowed.owners
+2. Two nodes kg-del-src and kg-del-dst with one relation exist","1. Create the two nodes and the relation (see result 1)
+2. DELETE /nodes/<src> without the force flag (see result 2)
+3. GET /nodes/<src> (see result 3)
+4. DELETE /nodes/<src>?force=true (see result 4)
+5. Cleanup: delete the remaining node and confirm the graph is clean (see result 5)","1. All three creates return 201
+2. Returns 409 with detail Cannot delete node with relationships. Use force=true.
+3. Returns 200 and the node plus its relation still exist
+4. Returns 204 and the relation is removed together with the node (DETACH DELETE)
+5. The second node deletion returns 204 and /graph no longer contains either element",Yes,,,,design_method:Error Guessing;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;protects the graph from dangling relations;verification source: agent_registry/knowledge_graph_api/router.py#L329-L374 (409 versus force path)
+26-winter,Knowledge graph API answers 404 while disabled,[FIT-registry-center-knowledge-graph-006],registry-center,n/a,https://github.com/project-openan/integration-test/issues/7,Exception Test,P2,"1. registry-center deployed with knowledge_graph.enabled=false (shipped default)
+2. Neo4j credentials are configured as in production so only the switch decides the outcome","1. GET /rest/v1/registry-center/knowledge-graph/nodes (see result 1)
+2. POST /rest/v1/registry-center/knowledge-graph/nodes with a valid body (see result 2)
+3. GET /rest/v1/registry-center/knowledge-graph/graph (see result 3)
+4. Cleanup: confirm no graph write happened and the switch is unchanged (see result 4)","1. Returns 404 with detail Knowledge graph API is disabled
+2. Returns 404 and no node is created (the guard rejects before the body is used)
+3. Returns 404 with the same detail
+4. etc/conf/server.conf still sets knowledge_graph.enabled=false and the Neo4j graph holds no element created by this case",Yes,,,,design_method:Error Guessing;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;fail-closed default for the pre-embedded graph API;verification source: agent_registry/knowledge_graph_api/router.py#L69-L94 (kg_guard)
+26-winter,Graph-traversal retrieval route is absent today,[FIT-registry-center-knowledge-graph-007],registry-center,n/a,https://github.com/project-openan/integration-test/issues/7,Functional Test,P2,"1. Promised, not shipped: issue #7 requires graph-traversal-based semantic retrieval, but the graph router registers only /nodes, /relationships, /graph, /bulk/nodes, /bulk/relationships, /import, /export and /sync (agent_registry/knowledge_graph_api/router.py#L156-L936) and semantic search never consults the graph (agent_registry/core.py#L570-L620)
+2. knowledge_graph.enabled=true with Neo4j reachable and the caller in knowledge_graph.allowed.owners, so a 404 cannot come from the disabled/authorization guard
+3. Cards <org>/ran-es-agent and <org>/ran-report-agent are published and their graph nodes are linked by a DEPENDS_ON relation","1. Probe the promised surface: GET /rest/v1/registry-center/knowledge-graph/nodes/<id>/neighbors, POST /rest/v1/registry-center/knowledge-graph/traverse, GET /rest/v1/registry-center/knowledge-graph/graph, then repeat POST /rest/v1/registry-center/agent-cards/semantic-query for the same task (see result 1)
+2. Cleanup: delete the two graph nodes with force=true and the two cards (see result 2)","1. No traversal route is registered: both candidate routes return 404 with the framework default body {""detail"":""Not Found""} while the registered /graph route returns 200, and the semantic-query result set for the task is identical with and without the DEPENDS_ON relation, so retrieval is not graph-aware today
+2. Both nodes delete with 204 and both cards with 200 deleted=true, and the graph no longer holds the elements",No,,,,"design_method:Scenario Method;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;promised, not shipped - kept against the issue #7 promise because no graph-traversal retrieval endpoint exists in this release (see plan R-3);verification source: agent_registry/knowledge_graph_api/router.py#L156-L936 (route inventory) and agent_registry/core.py#L570-L620 (retrieval ignores the graph)"
+26-winter,Management app lists agents with publish status,[FIT-registry-center-mgmt-frontend-001],registry-center,n/a,https://github.com/project-openan/registry-center/issues/30;https://github.com/project-openan/integration-test/issues/8,Functional Test,P0,"1. registry-center and registry-center-web are deployed and the web entry <WEB_URL> (for example the /registry/ path of the deployment) is reachable in a browser
+2. The app Settings hold the backend location (direct IP and port, or the nginx gateway path /api/registry-center)
+3. agent_approval_enabled=true and two cards exist: <org>/ui-pub-1 published and <org>/ui-pending-1 registered","1. Open <WEB_URL> and wait for the Agent Registry view (see result 1)
+2. Read the stat cards and the agent table (see result 2)
+3. Switch to the organization tab and toggle the Cards and Table views (see result 3)
+4. Cleanup: delete the two cards through the API and reload the page (see result 4)","1. The Agent Registry view renders with the Total Agents, Service Layer, Network Layer and Organizations stat cards and no error toast
+2. The table lists both cards; the pending card shows the Pending Review pill and the published card shows Published
+3. The organization tab lists only that organization's agents and both view modes render the same agent set
+4. After the reload the total count is reduced by two and no row shows the deleted names",Yes,,,,design_method:Scenario Method;environment:with-workload-cluster;language_profile:js;protocol_primitive:none;execution_strategy:smoke;browser profile needs an access policy a browser can satisfy (see plan R-6);verification source: registry-center-web/src/locales/en.json (view labels) and src/service/api.js#L91-L97 (GET /agent-cards/manage)
+26-winter,Reviewer publishes an agent from the management UI,[FIT-registry-center-mgmt-frontend-002],registry-center,n/a,https://github.com/project-openan/registry-center/issues/30;https://github.com/project-openan/integration-test/issues/8,Functional Test,P0,"1. Web app reachable with the backend configured; agent_approval_enabled=true
+2. Card <org>/ui-agent-1 exists in status registered (pending)
+3. The browser session's caller identity may call the publish endpoint","1. Open the Agent Registry view and locate ui-agent-1 (see result 1)
+2. Click Publish Review and submit with an empty remark field (see result 2)
+3. Enter the remark approved for release and confirm with Confirm & Publish (see result 3)
+4. Reload the page and call GET /rest/v1/registry-center/agent-cards/<org>/ui-agent-1 (see result 4)
+5. Cleanup: DELETE the card and confirm it disappears from the table (see result 5)","1. The row shows Pending Review and offers the Publish Review action
+2. The request is rejected because the remark is mandatory: a failure toast is shown and the row keeps the Pending Review pill
+3. An Agent published success toast appears and the row pill becomes Published without a manual reload
+4. The reloaded table still shows Published and the detail endpoint returns exactly one card
+5. DELETE returns 200 deleted=true and the reloaded table no longer lists ui-agent-1",Yes,,,,"design_method:Scenario Method;environment:with-workload-cluster;language_profile:js;protocol_primitive:none;execution_strategy:smoke;the backend requires a non-empty remark (HTTP 400 otherwise);verification source: registry-center-web/src/components/registry_center/index.jsx#L380-L410 (review and publish flow), src/service/api.js#L99-L106"
+26-winter,Heartbeat monitor shows states and thresholds,[FIT-registry-center-mgmt-frontend-003],registry-center,n/a,https://github.com/project-openan/registry-center/issues/30;https://github.com/project-openan/integration-test/issues/8,Functional Test,P1,"1. Backend with heartbeat.enabled=true, interval=5, failure.threshold=2, grace.period=0 and the web app deployed
+2. Two cards are heartbeating when the case starts
+3. The browser can reach /rest/v1/registry-center/agents/health and the SSE stream through the same entry","1. Open the Heartbeat Monitor view from the navigation (see result 1)
+2. Read the status distribution tiles and the detection-config row (see result 2)
+3. Stop heartbeats for one agent and watch the live view (see result 3)
+4. Open that agent's history timeline (see result 4)
+5. Cleanup: delete both cards and reload the monitor (see result 5)","1. The view title is Heartbeat Monitor and the mode indicator reads Live (SSE) or Polling
+2. Tiles show monitored, healthy, suspect and offline counts; the config row shows Interval 5, Threshold 2, Grace 0 matching the backend detection config
+3. Within the detection window plus one polling interval the agent badge becomes suspect and then offline without a manual refresh
+4. The timeline lists transitions newest first with changed-at timestamps and the newest-first hint
+5. The monitor lists no cards for the deleted agents",Yes,,,,design_method:State Transition;environment:with-workload-cluster;language_profile:js;protocol_primitive:none;execution_strategy:full;SSE falls back to polling when the stream is unavailable;verification source: registry-center-web/src/components/heartbeat_monitor/index.jsx and src/hooks/use_health_polling.js and backend server.py#L1728-L1787
+26-winter,Review trail modal shows transitions and reasons,[FIT-registry-center-mgmt-frontend-004],registry-center,n/a,https://github.com/project-openan/registry-center/issues/30;https://github.com/project-openan/integration-test/issues/8,Functional Test,P1,"1. Web app reachable; card <org>/ui-agent-2 was published with remark first approval and then deprecated with remark policy removal
+2. The review-status endpoint returns both transitions for that card","1. Open the Agent Registry view and click the Trail action of ui-agent-2 (see result 1)
+2. Read the Current status block and the transition list (see result 2)
+3. Close the modal and check that the registry is unchanged (see result 3)
+4. Cleanup: DELETE ui-agent-2 and query its review status (see result 4)","1. The Review Trail modal opens with a Current status section
+2. Current status is Deprecated and the list shows registered to published (reason first approval) and published to deprecated (reason policy removal), newest first
+3. GET /rest/v1/registry-center/agent-cards/<org>/ui-agent-2/review-status returns the same history length as before the modal was opened
+4. DELETE returns 200 deleted=true and the review-status endpoint returns 404",Yes,,,,design_method:Scenario Method;environment:with-workload-cluster;language_profile:js;protocol_primitive:none;execution_strategy:full;history is bounded by the limit query parameter (1..100);verification source: registry-center-web/src/components/registry_center/ReviewTrailModal.jsx and server.py#L1268-L1307
+26-winter,"Search, tabs and view toggle stay consistent",[FIT-registry-center-mgmt-frontend-005],registry-center,n/a,https://github.com/project-openan/registry-center/issues/30;https://github.com/project-openan/integration-test/issues/8,Functional Test,P2,"1. Web app reachable with five cards seeded across two organizations and both registration layers
+2. Three of the cards share the name prefix ui-search","1. Type ui-search in the search box (see result 1)
+2. Switch between the All and By Organization tabs and the layer tabs (see result 2)
+3. Toggle the Cards and Table views (see result 3)
+4. Clear the search box (see result 4)
+5. Cleanup: delete the five seeded cards (see result 5)","1. Only the three ui-search cards remain listed and the total stat keeps the unfiltered count
+2. The organization tab lists only that organization's agents and the layer tab lists only cards of that registration layer
+3. Both view modes render the same filtered agent set, only the presentation changes
+4. The full list returns to five agents
+5. The deletions succeed and no seeded name remains in the list",Yes,,,,"design_method:Equivalence Partitioning;environment:docker-compose;language_profile:js;protocol_primitive:none;execution_strategy:full;runs against the local vite dev server on port 3004;verification source: registry-center-web/src/components/registry_center/index.jsx (search, tabs, cards/table toggle)"
+26-winter,Unreachable backend shows a load error state,[FIT-registry-center-mgmt-frontend-006],registry-center,n/a,https://github.com/project-openan/registry-center/issues/30;https://github.com/project-openan/integration-test/issues/8,Exception Test,P2,"1. The web app runs standalone (vite dev on port 3004) with the backend reachable at first
+2. The Settings dialog is available from the header
+3. Nothing listens on port 5999 of the test host","1. Open Settings, switch to Direct IP, set port 5999 and save (see result 1)
+2. Reload the page and observe the agent view (see result 2)
+3. Restore the correct port and reload (see result 3)
+4. Cleanup: confirm the stored configuration and registry data are unchanged (see result 4)","1. The settings are saved and the page reloads with the new base URL
+2. A Failed to load agents. error toast is shown with no unhandled exception screen and no silent empty list
+3. The list of seeded cards is rendered again from the correct backend
+4. The stored configuration points at the correct backend and the registry data is untouched",Yes,,,,"design_method:Error Guessing;environment:docker-compose;language_profile:js;protocol_primitive:none;execution_strategy:full;error path is surfaced to the operator, not swallowed;verification source: registry-center-web/src/components/common/setting/index.jsx and src/service/base_url.js"
+26-winter,Ops metrics and audit views are absent,[FIT-registry-center-mgmt-frontend-007],registry-center,n/a,https://github.com/project-openan/registry-center/issues/30;https://github.com/project-openan/integration-test/issues/8,Functional Test,P2,"1. Promised, not shipped: issue #8 requires operations metrics and audit-log dashboards, but no component consumes getOperationLogs (registry-center-web/src/service/api.js#L116-L120) and the app renders only the Agent Registry and Heartbeat Monitor views (registry-center-web/src/components/registry_center/index.jsx#L499-L527)
+2. The deployed management frontend is reachable and GET /rest/v1/registry-center/operation-logs returns publish/review entries for the seeded cards
+3. Playwright records every network request issued during the walkthrough","1. Probe the promised surface: open the app, enumerate the navigation entries, walk every view and record the network requests (see result 1)
+2. Cleanup: delete the seeded cards and confirm the operation-log entry count is unchanged by this case (see result 2)","1. The built app exposes exactly two views (Agent Registry and Heartbeat Monitor): no navigation entry or view renders operations metrics or an audit-log dashboard, and no request to /rest/v1/registry-center/operation-logs is issued during the walkthrough even though the API returns entries
+2. Both cards delete with 200 deleted=true and the operation-log entry count matches the value recorded before the case",No,,,,"design_method:Scenario Method;environment:with-workload-cluster;language_profile:js;protocol_primitive:none;execution_strategy:full;promised, not shipped - kept against the issue #8 promise because the shipped app has no operations-metrics or audit-log view (see plan R-5);verification source: registry-center-web/src/service/api.js#L116-L120 (getOperationLogs has no view consumer) and backend server.py#L1310-L1325"
+26-winter,Semantic search returns only the published agent,[FIT-registry-center-semantic-search-001],registry-center,n/a,https://github.com/project-openan/integration-test/issues/9,Functional Test,P0,"1. registry-center deployed with agent_approval_enabled=true and the chat model configured in etc/config/models.yaml with its named secret
+2. Card <org>/ss-pending-ran is registered (status registered) and card <org>/ss-published-ran is published; both describe RAN energy saving
+3. No other card in the registry matches the task","1. GET /rest/v1/registry-center/agent-cards (see result 1)
+2. POST /rest/v1/registry-center/agent-cards/semantic-query with {""task"":""optimize RAN energy consumption""} and top_n=10 (see result 2)
+3. Search the response for the pending card (see result 3)
+4. Cleanup: delete both cards (see result 4)","1. Returns 200; agentCards holds ss-published-ran and not ss-pending-ran
+2. Returns 200 with agentCards as a plain list of AgentCard objects in the same shape as the list endpoint (no publishStatus or status field added)
+3. ss-pending-ran appears in no element even though its description matches: pending cards are excluded before the selection model is called
+4. Both deletions return 200 and GET /agent-cards shows neither card",Yes,,,,"design_method:State Transition;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;assert absence and shape, never model-generated text;verification source: agent_registry/server.py#L1506-L1519 (post-handler filter) and agent_registry/core.py#L570-L620 (candidate status filter)"
+26-winter,Layer-aware semantic query filters pending cards,[FIT-registry-center-semantic-search-002],registry-center,n/a,https://github.com/project-openan/integration-test/issues/9,Functional Test,P0,"1. agent_approval_enabled=true and the chat model configured
+2. Card <org>/ss-layer-pub is published in the service layer and <org>/ss-layer-pending is registered in the network layer
+3. Both cards are in the same organization","1. POST /rest/v1/registry-center/agent-cards-with-layer/semantic-query with {""task"":""optimize RAN energy"",""layer"":""service""} (see result 1)
+2. POST the same endpoint without a task (see result 2)
+3. POST /rest/v1/registry-center/agent-cards-with-layer with {""layer"":""network""} (see result 3)
+4. Cleanup: delete both cards (see result 4)","1. Returns 200 with agents[] and count; every entry carries the agentCard and layer keys with layer=service, and ss-layer-pending is absent
+2. Returns 422 with detail task is required for semantic queries
+3. Returns 200 with agents listing only published records of that layer (status=published is pushed into the query), so ss-layer-pending does not appear
+4. Both deletions return 200",Yes,,,,design_method:Equivalence Partitioning;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:smoke;layer-aware reads keep the registration-record shape;verification source: agent_registry/server.py#L1589-L1660 and L655-L661 (agentCard plus layer record shape)
+26-winter,Custom retrieve handler output is still filtered,[FIT-registry-center-semantic-search-003],registry-center,n/a,https://github.com/project-openan/integration-test/issues/9,Functional Test,P1,"1. The service is started with a custom handler registered through HandlerRegistry.register(InterfaceType.RETRIEVE, <handler>) that returns the fixed order [pub-a, pending-b, pub-c]
+2. Cards <org>/pub-a and <org>/pub-c are published and <org>/pending-b is registered (pending)
+3. The chat model is configured for the built-in comparison run","1. POST /rest/v1/registry-center/agent-cards/semantic-query with {""task"":""anything""} against the instance running the custom handler (see result 1)
+2. Restart the same deployment with the default handlers and repeat the request (see result 2)
+3. Check the pending card on the other discovery surfaces (see result 3)
+4. Cleanup: delete the three cards and restore the default handler set (see result 4)","1. Returns 200 with agentCards exactly [pub-a, pub-c]: pending-b is dropped by the server-side filter after the handler returned and the relative order of the survivors is preserved
+2. Returns 200 and the built-in handler also returns published cards only, with pending-b absent
+3. GET /agent-cards returns pub-a and pub-c only and GET /agent-cards/<org>/pending-b returns {""agentCards"":[]}
+4. Deletions return 200 deleted=true and the service runs with the default handler set again",Yes,,,,design_method:Orthogonal Experiment;environment:docker-compose;language_profile:python;protocol_primitive:none;execution_strategy:full;custom handlers are mounted at the documented extension point (plan R-4);verification source: common/custom/custom_handle.py#L114-L169 (RetrieveHandler and HandlerRegistry) and server.py#L1506-L1519
+26-winter,Publish status changes apply to list and detail,[FIT-registry-center-semantic-search-004],registry-center,n/a,https://github.com/project-openan/integration-test/issues/9,Functional Test,P1,"1. agent_approval_enabled=true; card <org>/ss-state-1 registered as pending
+2. The caller may call publish, deprecate and delete for that card","1. GET /rest/v1/registry-center/agent-cards and GET /rest/v1/registry-center/agent-cards/<org>/ss-state-1 (see result 1)
+2. POST /rest/v1/registry-center/agent-cards/<org>/ss-state-1/publish with {""remark"":""approved""} (see result 2)
+3. GET the list, the detail and GET /rest/v1/registry-center/agent-cards/manage (see result 3)
+4. POST /rest/v1/registry-center/agent-cards/<org>/ss-state-1/deprecate with {""remark"":""decommissioned""} and re-read the three surfaces (see result 4)
+5. Cleanup: DELETE the card (see result 5)","1. Both return 200; the list excludes ss-state-1 and the detail returns {""agentCards"":[]}
+2. Returns 200 with status success and publishStatus published
+3. The list and the detail now return the card; /agent-cards/manage lists it with publishStatus=published and statusCounts.published is at least 1
+4. Returns 200 with publishStatus deprecated; the list and the detail no longer return it while /agent-cards/manage still lists it with publishStatus=deprecated
+5. DELETE returns 200 deleted=true and /agent-cards/manage no longer lists the card",Yes,,,,"design_method:State Transition;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;regression coverage for the publish filtering already shipped on list and detail;verification source: agent_registry/server.py#L1079-L1138 (manage list), L1522-L1554 (detail), agent_registry/status.py#L66-L71 (transition matrix)"
+26-winter,Search with no published match returns empty,[FIT-registry-center-semantic-search-005],registry-center,n/a,https://github.com/project-openan/integration-test/issues/9,Functional Test,P1,"1. agent_approval_enabled=true and the chat model configured
+2. Only unpublished cards describe the task satellite link budget planning
+3. No published card mentions that topic","1. Register two pending cards whose descriptions match that task (see result 1)
+2. POST /rest/v1/registry-center/agent-cards/semantic-query with that task (see result 2)
+3. Inspect the response body shape (see result 3)
+4. Cleanup: delete both cards (see result 4)","1. Both registrations return 201 with status registered (approval is enabled)
+2. Returns 200 with agentCards=[]; the filter runs before selection so no model guess can leak a pending card and the call is not a 404 or 503
+3. The body is a JSON object carrying only the agentCards key, with no error envelope
+4. Both deletions return 200",Yes,,,,"design_method:Boundary Value Analysis;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;empty result is a normal 200, not an outage signal;verification source: agent_registry/core.py#L603-L620 (empty candidate set returns no match) and server.py#L1515-L1519"
+26-winter,Invalid semantic query input is rejected with 422,[FIT-registry-center-semantic-search-006],registry-center,n/a,https://github.com/project-openan/integration-test/issues/9,Exception Test,P2,"1. The chat model is configured so a valid query would reach the selection step
+2. The service is reachable with a valid caller identity","1. POST /rest/v1/registry-center/agent-cards/semantic-query with {""task"":""""} (see result 1)
+2. POST the same endpoint with a task of 10001 characters (see result 2)
+3. POST with top_n=0 and then top_n=51 as query parameters (see result 3)
+4. Cleanup: this case writes nothing; confirm the agent list is unchanged (see result 4)","1. Returns 422 with the message that task must be a non-empty string of at most 10000 characters
+2. Returns 422 with the same task-length message
+3. Both return 422 from the query-parameter validation, before any model call
+4. The agent list and status counts are identical to the values recorded before the case",Yes,,,,design_method:Boundary Value Analysis;environment:with-workload-cluster;language_profile:python;protocol_primitive:none;execution_strategy:full;invalid input never reaches the model;verification source: agent_registry/request_validation.py#L33-L39 and server.py#L1469-L1497 (top_n bounds 1..50)
