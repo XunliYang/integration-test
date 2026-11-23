@@ -1,6 +1,6 @@
 # Workflow Engine SDK Test Plan (DAG Execution, Dispatch, State Sync, Result Callbacks)
 
-> Version: v0.2 | Date: 2026-11-19 | Author: Orchestration Center WG test owner (Zhoujie628) | Review status: Pending review
+> Version: v0.3 | Date: 2026-11-23 | Author: Orchestration Center WG test owner (Zhoujie628) | Review status: Pending review (v0.3 adds the eight review-requested cases)
 > Related feature proposal: [orchestration-center#79](https://github.com/project-openan/orchestration-center/issues/79) (tracked in [integration-test#13](https://github.com/project-openan/integration-test/issues/13)) | Version milestone: `26-winter`
 > Archive path: `docs/plans/26-winter/` (merged via PR after review approval)
 
@@ -69,7 +69,7 @@ Business logic (context construction, conditional routing decisions, A2A-T conte
 | Reference host agent | `openan-demo/mockagent` | `mockagent_engine` (workflow mode enabled) | FIT dependency | Hosts PSOPs via `execute_psop`; SELF_LOOP steps local, remote steps dispatched over `A2ATransport` |
 | Stub agent fleet | `openan-demo/mockagent/agents/an-l4-*` | 20 instances, ports 9101-9120 or gateway prefix `/agents/<id>` | FIT dependency | AgentCards in `registry_seed/agentcard.json`, `provider.organization=OpenAN-Stub`, declare Task-T / Negotiation-T / Authorization-T / Notification-T |
 | Registry Center | `registry-center` | `26-winter` release build | FIT dependency (2 cases) | Card authority for `RegistryClient.fetch_agent_cards()` |
-| Orchestration Center | `orchestration-center` | `26-winter` release build | FIT dependency (1 case) | Host agent runtime forwards SDK events as A2A task updates |
+| Orchestration Center | `orchestration-center` | `26-winter` release build | FIT dependency (2 cases) | Host agent runtime forwards SDK events as A2A task updates; the execution-observation ingest/replay stream is asserted by `state-sync-007` |
 
 The module under test is the SDK only. `mockagent`, `registry-center`, and `orchestration-center` appear in the `Component Deps` column exclusively on rows whose steps actually interact with them.
 
@@ -86,9 +86,9 @@ The module under test is the SDK only. `mockagent`, `registry-center`, and `orch
 
 ### 3.2 Test Types
 
-- [x] Functional testing (DAG execution, dispatch routing, state events, result hand-back)
-- [x] Exception testing (invalid DAG, missing AgentCard, callback failures, client/executor reuse)
-- [x] A2A-T protocol testing (Task-T content envelope and `A2A-Extensions` activation on dispatch — `task-dispatch-001`, typed `Protocol Test`)
+- [x] Functional testing (DAG execution, `ANY_SUCCESS` aggregation, dispatch routing, state events, result hand-back, cancellation, stream resume)
+- [x] Exception testing (invalid DAG, missing AgentCard, remote timeout/unreachable agent, A2A-T envelope rejection, callback failures, client/executor reuse and concurrent binding)
+- [x] A2A-T protocol testing (Task-T content envelope and `A2A-Extensions` activation on dispatch — `task-dispatch-001`; the required-extension gate that rejects a dispatch before any protocol exchange — `task-dispatch-008`; both typed `Protocol Test`)
 - [ ] Performance testing (owned by the SDK repos and the DFX track)
 - [ ] Stress/capacity testing
 - [ ] Long-duration stability testing (7×24h)
@@ -107,9 +107,9 @@ The module under test is the SDK only. `mockagent`, `registry-center`, and `orch
 
 ### 3.4 Automation Strategy
 
-- 100% of P0/P1 cases are automated (`Automatable=Yes` for all 14 P0/P1 rows); P2 rows are automated as well, so the whole table is automatable.
-- Landing zone: `e2e/workflow-engine-sdk/` in this repository, `pytest` + `pytest-asyncio` for all 20 rows (the table is Python-only; the Java harness belongs to the deferred DFC table).
-- `execution` label layering: `smoke` (4 rows, the P0 core path, PR gate) / `full` (16 rows, daily).
+- 100% of P0/P1 cases are automated (`Automatable=Yes` for all 22 P0/P1 rows); P2 rows are automated as well, so the whole table is automatable.
+- Landing zone: `e2e/workflow-engine-sdk/` in this repository, `pytest` + `pytest-asyncio` for all 28 rows (the table is Python-only; the Java harness belongs to the deferred DFC table).
+- `execution` label layering: `smoke` (7 rows, the P0 core path, PR gate) / `full` (21 rows, daily).
 - Failure archive: event stream, SDK protocol log (only when `WORKFLOW_ENGINE_PROTOCOL_LOGGING=true`), mockagent access log, and the compose service logs of the failing service.
 
 ---
@@ -126,6 +126,14 @@ The module under test is the SDK only. `mockagent`, `registry-center`, and `orch
 | SCN-workflow-engine-sdk-006 | Step and workflow state is exposed as an ordered event stream, guarded against client/executor reuse, and persisted through `on_finish` (`state-sync-001`, `state-sync-002`, `state-sync-003`, `state-sync-005`) | SDK | P0 | Covers `execute_psop` lifecycle, `EventType`, `begin_execution`/`end_execution`, `on_finish` |
 | SCN-workflow-engine-sdk-007 | The orchestration-center host agent forwards SDK state to the center as A2A task updates carrying `__sdk_event__` metadata (`state-sync-004`) | orchestration-center, registry-center, mockagent | P2 | Covers `host_agent/runtime.py` event wrapping |
 | SCN-workflow-engine-sdk-008 | `ExecutionResult` and per-task results are handed back to the application layer with upstream results, stable failure codes and event reshaping (`result-callback-001` … `-004`) | SDK, mockagent | P0 | Covers `on_finish`, `TaskRequest.workflow_input`, `failure_to_task_result`, `on_event` |
+| SCN-workflow-engine-sdk-009 | An `ANY_SUCCESS` step whose subtasks partly fail still makes the workflow succeed, records the failed subtask and lets dependents run (`dag-execution-007`) | SDK | P0 | Covers the `ANY_SUCCESS` branch of `_execute_subtasks`, `_collect_results` |
+| SCN-workflow-engine-sdk-010 | Closing the execution event iterator mid-dispatch stops the run, dispatches no further task and releases the client binding (`dag-execution-008`) | SDK | P1 | Covers the `GeneratorExit` path of `execute_psop`, `WorkflowExecutor.run` finally, `end_execution` |
+| SCN-workflow-engine-sdk-011 | A timed-out or unreachable remote agent yields a stable failed status/code and blocks every dependent step (`task-dispatch-006`) | SDK, mockagent | P0 | Covers the executor callback `wait_for`, `failure_to_task_result`, `_dispatch` connect path |
+| SCN-workflow-engine-sdk-012 | A missing required or an undeclared activated A2A-T extension is rejected before any protocol exchange (`task-dispatch-008`) | SDK, mockagent | P0 | Covers `A2ATransport.validate_content_extensions` and its call site in `_send_or_recover` |
+| SCN-workflow-engine-sdk-013 | Exceptions raised by `on_task`, `on_event` or `on_finish` are contained and the event stream still terminates (`result-callback-005`) | SDK, mockagent | P1 | Covers the `_execute_single` failure catch, `_emit_event`, the runner callback guards |
+| SCN-workflow-engine-sdk-014 | A second execution cannot bind a client that is already in use, and the first execution is unaffected (`state-sync-006`) | SDK, mockagent | P1 | Covers `WorkflowEngineClient.begin_execution` / `end_execution` |
+| SCN-workflow-engine-sdk-015 | An interrupted execution event stream resumes from `Last-Event-ID` without duplicates and reaches its terminal state exactly once (`state-sync-007`) | SDK reporter, orchestration-center | P1 | Covers `ExecutionReporter._send_batch`, observation ingest and the replay stream |
+| SCN-workflow-engine-sdk-016 | Removing or replacing an AgentCard invalidates the cached client, and a failed refresh keeps the previous map and cache (`state-sync-008`) | SDK, mockagent | P1 | Covers `A2ATransport.update_agent_cards`, `_build_card_map`, `client_for` |
 
 ---
 
@@ -134,14 +142,14 @@ The module under test is the SDK only. `mockagent`, `registry-center`, and `orch
 ### 5.1 Numbering Rules
 
 - FIT cases: `[FIT-workflow-engine-sdk-<topic>-<number>]`, topics `dag-execution`, `task-dispatch`, `state-sync`, `result-callback`.
-- Sequences start at `001` and are continuous within a topic.
+- Sequences start at `001` and are unique within a topic. `task-dispatch-007` is reserved and carries no case in this revision, so that topic reads `-001` … `-006` plus `-008`; every other topic is continuous.
 
 ### 5.2 Priority Definitions
 
 | Priority | Definition | Pass Rate Requirement |
 |--------|------|-----------|
-| P0 | The SDK core path a host cannot ship without: a valid DAG executes, a task reaches its agent, state is observable, the result is handed back | 100% (TRR entry and release gate) |
-| P1 | Main functionality: fan-out/join correctness, routing per agent and skill, registry-resolved cards, persistence hook, stable failure codes | 100% |
+| P0 | The SDK core path a host cannot ship without: a valid DAG executes, an `ANY_SUCCESS` step still succeeds when only some subtasks fail, a task reaches its agent, a timed-out or unreachable agent fails with a stable code, an invalid A2A-T envelope is rejected before any protocol exchange, state is observable, the result is handed back | 100% (TRR entry and release gate) |
+| P1 | Main functionality: fan-out/join correctness, routing per agent and skill, registry-resolved cards, persistence hook, stable failure codes, execution cancellation, callback containment, concurrent-binding rejection, stream resume, card-map refresh | 100% |
 | P2 | Business negatives and complex variants: all-denied branches, failing steps, unregistered target, card-map refresh, center event forwarding, event reshaping | ≥80% |
 
 ### 5.3 Label Dimensions
@@ -152,17 +160,19 @@ Every case carries the labels in code: `feature=workflow-engine-sdk`, `environme
 
 Cases are carried in the 16-column CSV archived next to this plan: [`testcases-workflow-engine-sdk.csv`](testcases-workflow-engine-sdk.csv). Field rules follow [Test Case Table Field Description](../../templates/testcases-template-fields.md).
 
-Inventory — 20 rows, 16 fields per data row, header verbatim:
+Inventory — 28 rows, 16 fields per data row, header verbatim:
 
 | Topic | Rows | Case IDs | Priority mix |
 |---|---|---|---|
-| `dag-execution` | 6 | `-001` … `-006` | P0×1, P1×3, P2×2 |
-| `task-dispatch` | 5 | `-001` … `-005` | P0×1, P1×3, P2×1 |
-| `state-sync` | 5 | `-001` … `-005` | P0×1, P1×2, P2×2 |
-| `result-callback` | 4 | `-001` … `-004` | P0×1, P1×2, P2×1 |
-| **Total** | **20** | | **P0=4, P1=10, P2=6** |
+| `dag-execution` | 8 | `-001` … `-008` | P0×2, P1×4, P2×2 |
+| `task-dispatch` | 7 | `-001` … `-006`, `-008` | P0×3, P1×3, P2×1 |
+| `state-sync` | 8 | `-001` … `-008` | P0×1, P1×5, P2×2 |
+| `result-callback` | 5 | `-001` … `-005` | P0×1, P1×3, P2×1 |
+| **Total** | **28** | | **P0=7, P1=15, P2=6** |
 
-Label distribution: `language_profile` python 20 (single language; Java parity deferred to DFX); `environment` docker-compose 18 / with-workload-cluster 2; `protocol_primitive` `Task-T` 8 / `none` 12; `execution_strategy` smoke 4 / full 16. Case types: Functional Test 14, Exception Test 5, Protocol Test 1 (the A2A-T Task-T envelope assertion in `task-dispatch-001`).
+Label distribution: `language_profile` python 28 (single language; Java parity deferred to DFX); `environment` docker-compose 25 / with-workload-cluster 3; `protocol_primitive` `Task-T` 13 / `none` 15; `execution_strategy` smoke 7 / full 21. Case types: Functional Test 18, Exception Test 8, Protocol Test 2 (the A2A-T Task-T envelope assertion in `task-dispatch-001` and the extension-gate rejection in `task-dispatch-008`).
+
+Requirement coverage: all 28 rows carry both requirement links (`orchestration-center#79` and `integration-test#13`) in `Requirement Link`, and the 22 P0/P1 rows are all `Automatable=Yes`, so every approved requirement of this feature is traced to an executable case.
 
 ### 5.5 Case Design Requirements
 
@@ -179,7 +189,7 @@ Label distribution: `language_profile` python 20 (single language; Java parity d
 
 | Item | Value |
 |----|------|
-| Deployment mode | `docker-compose` for the SDK-plus-mock-agent cases (18 rows); workload cluster for the two cases that need the real registry-center/orchestration-center (2 rows) |
+| Deployment mode | `docker-compose` for the SDK-plus-mock-agent cases (25 rows); workload cluster for the three cases that need the real registry-center/orchestration-center (3 rows: `task-dispatch-004`, `state-sync-004`, `state-sync-007`) |
 | Host services | `mockagent` gateway on `127.0.0.1:9300` with `/agents/<id>` prefixes (recommended single-port mode) or per-instance ports `9005-9010` / `9101-9120` |
 | Cluster services | `registry-center` `https://127.0.0.1:5000`, `orchestration-center` backend `http://127.0.0.1:5001` (frontend `3003`) |
 | Runtimes | Python 3.12+ with `a2a-sdk>=1.1.2,<2`, `a2a-t-sdk>=1.2.0,<2`; JDK 17 + Maven 3.6+ are needed only by the deferred DFX (DFC) parity table, not by this suite |
@@ -189,22 +199,23 @@ Label distribution: `language_profile` python 20 (single language; Java parity d
 
 | Dependency | Configuration | Notes |
 |------|---------|------|
-| Reference agents | `openan-demo/mockagent` gateway, cards from `registry_seed/agentcard.json` | Referenced by the 10 rows that name `mockagent` in `Component Deps` |
+| Reference agents | `openan-demo/mockagent` gateway, cards from `registry_seed/agentcard.json` | Referenced by the 15 rows that name `mockagent` in `Component Deps` |
 | Registry Center | `REGISTRY_CENTER_URL=https://127.0.0.1:5000`, `REGISTRY_CA_CERT`, registry access token | Used by `RegistryClient.fetch_agent_cards()` in `task-dispatch-004` |
-| Orchestration Center | `agent_registry_url` pointing at registry-center, host agent registered, PSOP stored | Used by `state-sync-004` |
+| Orchestration Center | `agent_registry_url` pointing at registry-center, host agent registered, PSOP stored | Used by `state-sync-004` and by the execution-observation ingest/replay path of `state-sync-007` (`OPENAN_EXECUTION_HOSTS`, `OPENAN_CENTER_EVENTS_URL`) |
 | LLM endpoint | Not required; `A2AT_LLM_*` deliberately unset so callback payloads are deterministic | A real endpoint may be used for exploratory runs only |
-| External database | Not required; `persistence_mode=file` is sufficient for the one center-side case | PostgreSQL/MySQL not exercised |
+| External database | Not required; `persistence_mode=file` is sufficient for both center-side cases | PostgreSQL/MySQL not exercised |
 
 ### 6.3 Test Data
 
 - PSOP fixtures: linear chain, diamond, late-branch join (`a->b,c; b->d,q; c->d; d->s; s->p; q->m; p->m; m->endNode`), three-edge conditional fan-out, three-step persistable DAG, and two-step remote+aggregate DAG. All loaded through `Workflow.from_dict` so the fixture format is the same one `load_psop` returns.
 - Malformed fixtures: duplicate step name, unknown edge target, self cycle, reserved terminal name (`endNode`), `context_from` mixing `"*"` with a named source, blank `task.agent`.
-- AgentCard sets: the seed `agentcard.json` (26 cards, `provider.organization=OpenAN-Stub`), plus synthetic sets A/B/C for the card-map refresh case.
+- AgentCard sets: the seed `agentcard.json` (26 cards, `provider.organization=OpenAN-Stub`), plus synthetic sets A/B/C for the card-map refresh case (`state-sync-005`) and the removal/replacement sets A-D of `state-sync-008`.
+- Observation fixtures: the host source URN, the ingest token environment variable and the PSOP revision published by `GET /api/v1/orchestrate/psop/{psop_id}`, all required before `state-sync-007` can replay a run.
 - Callback implementations: recording `ControlPoint`, denying `ControlPoint`, `BusinessFailure`-raising `ControlPoint`, event-collecting `EventCallback`, event-reshaping `on_event`.
 
 ### 6.4 Environment Variables
 
-The suite reuses `e2e/.env.template` (`REGISTRY_CENTER_URL`, `REGISTRY_CA_CERT`, `ORCHESTRATION_CENTER_URL`, `MOCK_AGENTS_HOST`). SDK-specific variables already documented by the component are `WORKFLOW_ENGINE_PROTOCOL_LOGGING`, `WORKFLOW_ENGINE_PROTOCOL_INCLUDE_SENSITIVE_HEADERS`, and `A2AT_CRED_KEY` (see `workflow-engine-sdk-python/.env.example`). New variables introduced by this plan — `SDK_FIXTURE_DIR` and `MOCKAGENT_GATEWAY_URL` — must be added to `e2e/.env.template` and documented in the README before the automation merges. No secret is hardcoded; registry token and CA path are injected.
+The suite reuses `e2e/.env.template` (`REGISTRY_CENTER_URL`, `REGISTRY_CA_CERT`, `ORCHESTRATION_CENTER_URL`, `MOCK_AGENTS_HOST`). SDK-specific variables already documented by the component are `WORKFLOW_ENGINE_PROTOCOL_LOGGING`, `WORKFLOW_ENGINE_PROTOCOL_INCLUDE_SENSITIVE_HEADERS`, and `A2AT_CRED_KEY` (see `workflow-engine-sdk-python/.env.example`). New variables introduced by this plan — `SDK_FIXTURE_DIR` and `MOCKAGENT_GATEWAY_URL`, plus the execution-observation pair `OPENAN_EXECUTION_HOSTS` (center side) and `OPENAN_CENTER_EVENTS_URL` / `OPENAN_EXECUTION_TOKEN` / `OPENAN_EXECUTION_SOURCE` / `OPENAN_EXECUTION_SPOOL` (host side) used by `state-sync-007` — must be added to `e2e/.env.template` and documented in the README before the automation merges. No secret is hardcoded; registry token, ingest token and CA path are injected.
 
 ---
 
@@ -212,7 +223,7 @@ The suite reuses `e2e/.env.template` (`REGISTRY_CENTER_URL`, `REGISTRY_CA_CERT`,
 
 | Gate | Criteria | Source |
 |------|------|------|
-| TRR entry (into FIT) | Both SDK repositories build (`python -m build`, `mvn -B clean verify`), P0/P1 pass rate = 100%, mockagent compose stack and the two cluster services healthy, image deployable | Framework §8.1 |
+| TRR entry (into FIT) | Both SDK repositories build (`python -m build`, `mvn -B clean verify`), P0/P1 pass rate = 100% (22 rows, the 7 `smoke` rows included), mockagent compose stack and the cluster services behind the 3 `with-workload-cluster` rows healthy, image deployable | Framework §8.1 |
 | FIT exit | Overall pass rate ≥ 95%, failed cases archived as issue + `skip-temporarily`, no open P0/P1, report reviewed by the Integration Testing WG | Framework §8.2 |
 | SIT exit / release entry | SIT pass rate = 100% with no skips, install/upgrade/rollback passed, no open P0, compatibility matrix passed | Framework §8.3 |
 
@@ -258,7 +269,7 @@ The suite reuses `e2e/.env.template` (`REGISTRY_CENTER_URL`, `REGISTRY_CA_CERT`,
 | Deliverable | Archive Path |
 |--------|---------|
 | Test plan (this document) | `docs/plans/26-winter/workflow-engine-sdk-test-plan.md` |
-| Case table CSV | `docs/plans/26-winter/testcases-workflow-engine-sdk.csv` |
+| Case table CSV | `docs/plans/26-winter/testcases-workflow-engine-sdk.csv` (28 rows, 16 columns) |
 | Test code | `e2e/workflow-engine-sdk/` |
 | Test report | `docs/reports/26-winter/` (template: [test-report-template.md](../../templates/test-report-template.md)) |
 
@@ -293,6 +304,9 @@ The Java column documents the surface verified while authoring; it is reference 
 7. **`mockagent` workflow mode needs `a2a-t-sdk` and, for LLM mode, a live model endpoint.** The FIT harness uses the deterministic `ControlPoint` payload path (dataset template or plain text), never the LLM path.
 8. **`registry_seed/agentcard.json` currently holds 26 AgentCards** (20 AN L4 fleet cards plus 6 legacy stub cards). `task-dispatch-004` asserts `N >= 21` and re-reads the live count before and after the run, so seed trimming does not break the case but an accidental mass deletion still fails it.
 9. **PSOP `skill` values are AgentCard skill display names**, not ids (for example `Analysis and Evaluation` on `mockagent_an-l4-ran-agent`, `Service Assurance Root Cause Analysis` on `mockagent_an-l4-service-assurance-agent`). The fixtures must use those exact strings, matching how `openan-demo/mockagent/mockagent_engine/workflow_mode.py` keys `AGENT_SKILL_TEMPLATE_MAP`.
+10. **A remote timeout is reported as `workflow.cancelled`, not `workflow.timeout`.** A slow or silent agent is bounded by the executor's `asyncio.wait_for(...)` (`workflow_engine/core/executor.py` L251-L254); `wait_for` raises `TimeoutError` whose `__cause__` is the cancelled inner task, and `failure_to_task_result` walks `__cause__` to the root (`core/failure_mapping.py` L18-L31), so the history entry gets `error_code` `workflow.cancelled` and `error` `CancelledError`. `workflow.timeout` is only produced by a bare `TimeoutError` raised from a callback. `task-dispatch-006` pins the observed code, and the taxonomy question (should a slow remote agent surface as `workflow.timeout`?) is raised with the SDK owners instead of being silently normalised.
+11. **The A2A-T extension gate runs after the `agent_request` event.** `_send_or_recover` emits `agent_request` and only then calls `validate_content_extensions` (`client/engine_client.py` L439-L444), so a rejected dispatch still emits that one event while no HTTP request leaves the client. `task-dispatch-008` therefore asserts protocol silence on the mockagent access log and on the absence of `agent_response`, never on `agent_request`.
+12. **`update_agent_cards` drops cached clients without closing them.** It rebuilds the map, updates the auth manager and clears `_a2a_clients` (`client/a2a_transport.py` L247-L253). The discarded client objects are not closed, and because the cache is cleared only after a successful rebuild, a failed refresh keeps both the previous map and the previous cache — the property `state-sync-008` asserts.
 
 ### C. Test Checklist
 
