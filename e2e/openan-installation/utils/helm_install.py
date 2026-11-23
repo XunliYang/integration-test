@@ -64,9 +64,10 @@ def wizard_answers(cfg: InstallConfig, components_answer: str | None = None) -> 
             (r"registry signing material", "auto"),
             (r"admin[\w ]{0,30}password", cfg.admin_password),
             (r"(postgres|database)[\w ]{0,30}password", cfg.db_password),
-            # gen_certs.py (containerized/tool/) is missing from the repo, so the
-            # default HTTPS path fails; explicitly decline self-signed HTTPS.
-            (r"enable https|self-signed", "no"),
+            # HTTPS self-signed (default yes): gen_certs.py lives at
+            # <repo-root>/tool/gen_certs.py and configure.py resolves it via
+            # parents[2], so the default path works on a full repo checkout.
+            (r"enable https|self-signed", "yes"),
             # install.sh [4/4] deploy confirmation and optional demo agents server.
             (r"deploy with this", "y"),
             (r"agent examples server", "n"),
@@ -111,8 +112,14 @@ def set_registry_signing(cfg: InstallConfig, enabled: bool) -> CommandResult:
     # Restart first: the running pod's writable layer (and any prior sed) is
     # discarded on recreate, so we must sed the FRESH pod after it is Ready.
     pod = pod_name("registry-center")
+    old_uid = ""
     if pod:
+        old_uid = kubectl_jsonpath(f"pod/{pod}", "{.metadata.uid}").stdout.strip()
         kubectl(["-n", "openan", "delete", "pod", pod, "--wait=false"])
+        # Wait for the pod to be recreated (new uid), not just still listed.
+        wait_until(lambda: (p := pod_name("registry-center")) is not None
+                   and kubectl_jsonpath(f"pod/{p}", "{.metadata.uid}").stdout.strip() != old_uid,
+                   timeout=600)
         wait_until(all_pods_running_and_ready, timeout=600)
     pod = pod_name("registry-center")
     if not pod:
@@ -121,8 +128,10 @@ def set_registry_signing(cfg: InstallConfig, enabled: bool) -> CommandResult:
                       "/bin/sh", "-c",
                       f"sed -i 's/^signature_validation_enabled=.*/signature_validation_enabled={value}/' "
                       "/opt/registry-center/etc/conf/server.conf && kill 1"], timeout=60)
-    if result.exit_code == 0 or "137" in str(result.exit_code):  # kill 1 severs the exec
-        wait_until(all_pods_running_and_ready, timeout=600)
+    # kill 1 restarts the process in-place; wait for the registry to serve again.
+    import time as _time
+    _time.sleep(5)
+    wait_until(all_pods_running_and_ready, timeout=600)
     return result
 
 

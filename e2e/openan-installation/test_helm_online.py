@@ -36,8 +36,9 @@ def test_helm_wizard_full_stack_platform_usable(require_profile):
     assert ingress.exit_code == 0, ingress.output
     assert len(ingress_lines) >= 3, ingress.output
     base = platform_base(install.output)
+    home_ok = wait_until(lambda: curl_request("GET", f"{base}/")[1] == "200", timeout=120)
     _, home_status = curl_request("GET", f"{base}/")
-    assert home_status == "200", base
+    assert home_ok, f"platform home never became 200 (last: {home_status})"
     token_body, token_status, _ = get_admin_token(base, cfg.admin_password, evidence_stem="helm-online-001")
     assert token_status == "200", f"{token_status} {token_body}"
     assert "access_token" in token_body, token_body
@@ -62,8 +63,12 @@ def test_helm_wizard_registry_only_deploys_registry_center(require_profile):
     assert "orchestration-center-" not in pods, pods
     assert "openan-frontend-" not in pods, pods
     base = platform_base(install.output)
+    # Pod Ready ≠ ingress endpoint synced; poll until the registry health
+    # endpoint answers 200 through the ingress.
+    health_ok = wait_until(
+        lambda: curl_request("GET", f"{base}/registry/health")[1] == "200", timeout=120)
     _, health_status = curl_request("GET", f"{base}/registry/health")
-    assert health_status == "200", base
+    assert health_ok, f"registry health never became 200 (last: {health_status})"
     uninstall = uninstall_online_helm(cfg)
     assert uninstall.exit_code == 0, uninstall.output
     releases = run(["helm", "ls", "-n", "openan"])

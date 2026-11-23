@@ -73,7 +73,7 @@ def install_config() -> InstallConfig:
         llm_api_key=os.getenv("OPENAN_INSTALL_LLM_API_KEY", "").strip(),
         image_tag=os.getenv("OPENAN_INSTALL_IMAGE_TAG", "").strip(),
         portal_tag=os.getenv("OPENAN_INSTALL_PORTAL_TAG", "v1.0.0").strip(),
-        frontend_type=os.getenv("OPENAN_INSTALL_FRONTEND_TYPE", "portal").strip(),
+        frontend_type=os.getenv("OPENAN_INSTALL_FRONTEND_TYPE", "workflow-designer").strip(),
         admin_password=os.getenv("OPENAN_INSTALL_ADMIN_PASSWORD", "").strip(),
         db_password=os.getenv("OPENAN_INSTALL_DB_PASSWORD", "").strip(),
         offline_k8s_bundle=os.getenv("OPENAN_INSTALL_OFFLINE_K8S_BUNDLE", "").strip(),
