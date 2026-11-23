@@ -63,15 +63,13 @@ def test_uninstall_force_removes_artifacts_keeps_tools(require_profile):
     _install_full_stack(cfg)
     uninstall = run("./uninstall.sh --force", cwd=cfg.binary_dir, timeout=600)
     assert uninstall.exit_code == 0, uninstall.output
-    # Services were confirmed listening before uninstall; they must be released.
-    for port in (5000, 5001):
+    # Services were confirmed listening before uninstall; all 14 ports must be
+    # released. Agents share one process (samples.start_agents_server listens on
+    # 8080 + 8899-8907/26335/26336), so they die together — assert each port.
+    for port in UNINSTALL_PORTS:
         assert wait_until(lambda p=port: not port_listening(p), timeout=60), (
             f"port {port} still listening after uninstall"
         )
-    for port in UNINSTALL_PORTS:
-        if port in (5000, 5001):
-            continue
-        wait_until(lambda p=port: not port_listening(p), timeout=20)
     assert not pathlib.Path("/etc/nginx/conf.d/openan.conf").exists()
     # uninstall removes the cert files but leaves the (now empty) ssl dir;
     # assert it is gone OR contains nothing.
