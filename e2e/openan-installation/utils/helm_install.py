@@ -10,7 +10,7 @@ import secrets
 from pathlib import Path
 
 from utils.env import InstallConfig
-from utils.shell import CommandResult, kubectl, kubectl_jsonpath, run, run_interactive, wait_until
+from utils.shell import CommandResult, curl_request, kubectl, kubectl_jsonpath, run, run_interactive, wait_until
 
 
 def online_install_dir(cfg: InstallConfig) -> Path:
@@ -99,39 +99,28 @@ def online_install_dir_chart(cfg: InstallConfig) -> Path:
 
 
 def set_registry_signing(cfg: InstallConfig, enabled: bool) -> CommandResult:
-    """Toggle card signature validation on the live registry by sed-ing
-    signature_validation_enabled in the running container's server.conf (it is
-    baked into the image, not a volume, so an initContainer cannot reach it),
-    then restart the pod so the app reloads the conf.
+    """Toggle card signature validation on the live registry by setting the
+    REGISTRY_SIGNATURE_VALIDATION_ENABLED env var on the Deployment (the
+    app's apply_env_overrides maps REGISTRY_* env to config keys), then
+    rolling-restart the pod so the new env is picked up.
 
-    NOTE: a fresh pod (redeploy/recreate) reverts to the image default (true).
-    Callers that restart the registry mid-test must re-apply set_registry_signing
-    on the new pod before asserting on unsigned cards.
+    This survives pod recreation (unlike sed on the image-baked server.conf,
+    which is reverted when the container restarts from the image layer).
     """
     value = "true" if enabled else "false"
-    # Restart first: the running pod's writable layer (and any prior sed) is
-    # discarded on recreate, so we must sed the FRESH pod after it is Ready.
-    pod = pod_name("registry-center")
-    old_uid = ""
-    if pod:
-        old_uid = kubectl_jsonpath(f"pod/{pod}", "{.metadata.uid}").stdout.strip()
-        kubectl(["-n", "openan", "delete", "pod", pod, "--wait=false"])
-        # Wait for the pod to be recreated (new uid), not just still listed.
-        wait_until(lambda: (p := pod_name("registry-center")) is not None
-                   and kubectl_jsonpath(f"pod/{p}", "{.metadata.uid}").stdout.strip() != old_uid,
-                   timeout=600)
-        wait_until(all_pods_running_and_ready, timeout=600)
-    pod = pod_name("registry-center")
-    if not pod:
-        return CommandResult(1, "", "registry-center pod not found after restart")
-    result = kubectl(["-n", "openan", "exec", pod, "-c", "registry-center", "--",
-                      "/bin/sh", "-c",
-                      f"sed -i 's/^signature_validation_enabled=.*/signature_validation_enabled={value}/' "
-                      "/opt/registry-center/etc/conf/server.conf && kill 1"], timeout=60)
-    # kill 1 restarts the process in-place; wait for the registry to serve again.
-    import time as _time
-    _time.sleep(5)
-    wait_until(all_pods_running_and_ready, timeout=600)
+    result = kubectl(["-n", "openan", "set", "env", "deploy/registry-center",
+                      f"REGISTRY_SIGNATURE_VALIDATION_ENABLED={value}"])
+    if result.exit_code != 0:
+        return result
+    # Rolling restart so the new env reaches the running process; wait for the
+    # health endpoint to confirm the registry is serving again.
+    kubectl(["-n", "openan", "rollout", "restart", "deploy/registry-center"])
+    kubectl(["-n", "openan", "rollout", "status", "deploy/registry-center", "--timeout=300s"])
+
+    def _registry_serving():
+        _, status = curl_request("GET", f"{platform_base('')}/registry/health")
+        return status == "200"
+    wait_until(_registry_serving, timeout=120)
     return result
 
 
