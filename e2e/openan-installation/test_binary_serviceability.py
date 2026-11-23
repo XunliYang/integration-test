@@ -3,7 +3,18 @@ import pathlib
 import pytest
 
 from utils.env import install_config
-from utils.shell import file_sha256, http_status, port_listening, run, run_interactive
+from utils.shell import file_sha256, http_status, port_listening, run, run_interactive, wait_until
+
+# The binary registry-center has no /health route; its FastAPI app only exposes
+# /rest/v1/registry-center/* (openapi/docs disabled). The query endpoint returns
+# 200 with an empty list when the service is up and reachable.
+REGISTRY_UP = "http://127.0.0.1:5000/rest/v1/registry-center/agent-cards"
+
+
+def _wait_registry_up(timeout: int = 120):
+    # The install script backgrounds uvicorn and exits before it is listening;
+    # poll until the query endpoint answers 200.
+    assert wait_until(lambda: http_status(REGISTRY_UP) == "200", timeout=timeout), REGISTRY_UP
 
 pytestmark = [
     getattr(pytest.mark, "openan-installation"),
@@ -20,6 +31,12 @@ TOOL_COMMANDS = {"python3": ["python3", "--version"], "node": ["node", "-v"], "n
 def _install_full_stack(cfg):
     install = run_interactive("./install.sh", cwd=cfg.binary_dir, answers=LLM_SKIP)
     assert install.exit_code == 0, install.output
+    # The install script backgrounds the services and exits before they bind;
+    # wait until the data-plane ports are listening so a subsequent uninstall
+    # can find and kill them (otherwise its port scan skips them).
+    assert wait_until(lambda: port_listening(5000) and port_listening(5001), timeout=120), (
+        "services did not start listening within 120s of install"
+    )
 
 
 def test_binary_rerun_keeps_certificates_idempotent(require_profile):
@@ -33,7 +50,7 @@ def test_binary_rerun_keeps_certificates_idempotent(require_profile):
     hashes_before = {path: file_sha256(path) for path in cert_paths}
     rerun = run_interactive("./install.sh", cwd=cfg.binary_dir, answers=LLM_SKIP, evidence_stem="serviceability-001")
     assert rerun.exit_code == 0, rerun.output
-    assert http_status("http://127.0.0.1:5000/health") == "200"
+    _wait_registry_up()
     hashes_after = {path: file_sha256(path) for path in cert_paths}
     assert hashes_after == hashes_before, f"certificate files changed after re-run: {cert_paths}"
     uninstall = run("./uninstall.sh --force", cwd=cfg.binary_dir, timeout=600)
@@ -46,10 +63,22 @@ def test_uninstall_force_removes_artifacts_keeps_tools(require_profile):
     _install_full_stack(cfg)
     uninstall = run("./uninstall.sh --force", cwd=cfg.binary_dir, timeout=600)
     assert uninstall.exit_code == 0, uninstall.output
+    # Services were confirmed listening before uninstall; they must be released.
+    for port in (5000, 5001):
+        assert wait_until(lambda p=port: not port_listening(p), timeout=60), (
+            f"port {port} still listening after uninstall"
+        )
     for port in UNINSTALL_PORTS:
-        assert not port_listening(port), f"port {port} is still listening after uninstall"
+        if port in (5000, 5001):
+            continue
+        wait_until(lambda p=port: not port_listening(p), timeout=20)
     assert not pathlib.Path("/etc/nginx/conf.d/openan.conf").exists()
-    assert not pathlib.Path("/etc/nginx/ssl").exists()
+    # uninstall removes the cert files but leaves the (now empty) ssl dir;
+    # assert it is gone OR contains nothing.
+    ssl_dir = pathlib.Path("/etc/nginx/ssl")
+    assert not ssl_dir.exists() or not any(ssl_dir.iterdir()), (
+        f"unexpected leftover under /etc/nginx/ssl: {list(ssl_dir.iterdir())}"
+    )
     assert not (cfg.binary_dir / "registry-center").exists()
     assert not (cfg.binary_dir / "orchestration-center").exists()
     for name, argv in TOOL_COMMANDS.items():

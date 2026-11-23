@@ -21,7 +21,8 @@ def test_valid_llm_config_written_after_validation(require_profile):
         pytest.skip("OPENAN_INSTALL_LLM_MODEL / _API_URL / _API_KEY are not configured")
     install = run_interactive("./install.sh --reg", cwd=cfg.binary_dir, answers=LLM_SKIP)
     assert install.exit_code == 0, install.output
-    llm_config_path = cfg.binary_dir / "registry-center" / "llm_config.json"
+    # configure_llm.sh writes to <svc>/common/config/llm_config.json
+    llm_config_path = cfg.binary_dir / "registry-center" / "common" / "config" / "llm_config.json"
     backup = llm_config_path.read_text() if llm_config_path.is_file() else None
     configure = run(
         [
