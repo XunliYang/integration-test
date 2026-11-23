@@ -54,6 +54,10 @@ def run_interactive(
     import pexpect
 
     answers = list(answers or [])
+    # pexpect resolves which(cmd) against the parent cwd, before cwd= is
+    # applied to the child; resolve relative paths ourselves.
+    if cwd and isinstance(cmd, str) and not os.path.isabs(cmd) and os.path.dirname(cmd):
+        cmd = str((Path(cwd) / cmd).resolve())
     child = pexpect.spawn(
         cmd,
         cwd=str(cwd) if cwd else None,

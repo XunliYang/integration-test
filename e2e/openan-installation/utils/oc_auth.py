@@ -7,7 +7,9 @@ from utils.shell import EVIDENCE_DIR, curl_request, save_evidence
 
 LOGIN_PATH = "/api/orchestrate/rest/v1/orchestrate/auth/login"
 CHANGE_PASSWORD_PATH = "/api/orchestrate/rest/v1/orchestrate/auth/change-password"
-TOKEN_PATH = "/api/v1/auth/token"
+# The frontend nginx only proxies the OC API under /api/orchestrate/; the bare
+# /api/v1/auth/token path is 404 there.
+TOKEN_PATH = "/api/orchestrate/api/v1/auth/token"
 JSON_HEADERS = ["Content-Type: application/json"]
 
 

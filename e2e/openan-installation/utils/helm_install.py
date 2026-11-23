@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
+import os
 import re
+import secrets
 from pathlib import Path
 
 from utils.env import InstallConfig
-from utils.shell import CommandResult, kubectl, kubectl_jsonpath, run, run_interactive
+from utils.shell import CommandResult, kubectl, kubectl_jsonpath, run, run_interactive, wait_until
 
 
 def online_install_dir(cfg: InstallConfig) -> Path:
@@ -30,9 +36,11 @@ def wizard_answers(cfg: InstallConfig, components_answer: str | None = None) -> 
         [
             # install.sh: regenerate a leftover deployment.generated.json from a prior run
             (r"regenerate", "y"),
-            # install.sh [2/4] infrastructure phase
+            # install.sh [2/4] infrastructure phase. Recreate the openan-pool
+            # MetalLB range (uninstall.sh deletes it): leaving it empty strands
+            # LoadBalancer services in <pending> on the next install.
             (r"install metallb", "y"),
-            (r"metallb ip pool", ""),
+            (r"metallb ip pool", "192.168.200.136-192.168.200.153"),
             # configure.py Step 1: components (full-stack default). The trailing "["
             # disambiguates the prompt from the "Components:" line in the deploy summary.
             (r"components\s*\[", "all"),
@@ -85,6 +93,39 @@ def uninstall_online_helm(cfg: InstallConfig) -> CommandResult:
     return run("./uninstall.sh", cwd=online_install_dir(cfg), timeout=1800)
 
 
+def online_install_dir_chart(cfg: InstallConfig) -> Path:
+    return online_install_dir(cfg) / "openan-chart"
+
+
+def set_registry_signing(cfg: InstallConfig, enabled: bool) -> CommandResult:
+    """Toggle card signature validation on the live registry by sed-ing
+    signature_validation_enabled in the running container's server.conf (it is
+    baked into the image, not a volume, so an initContainer cannot reach it),
+    then restart the pod so the app reloads the conf.
+
+    NOTE: a fresh pod (redeploy/recreate) reverts to the image default (true).
+    Callers that restart the registry mid-test must re-apply set_registry_signing
+    on the new pod before asserting on unsigned cards.
+    """
+    value = "true" if enabled else "false"
+    # Restart first: the running pod's writable layer (and any prior sed) is
+    # discarded on recreate, so we must sed the FRESH pod after it is Ready.
+    pod = pod_name("registry-center")
+    if pod:
+        kubectl(["-n", "openan", "delete", "pod", pod, "--wait=false"])
+        wait_until(all_pods_running_and_ready, timeout=600)
+    pod = pod_name("registry-center")
+    if not pod:
+        return CommandResult(1, "", "registry-center pod not found after restart")
+    result = kubectl(["-n", "openan", "exec", pod, "-c", "registry-center", "--",
+                      "/bin/sh", "-c",
+                      f"sed -i 's/^signature_validation_enabled=.*/signature_validation_enabled={value}/' "
+                      "/opt/registry-center/etc/conf/server.conf && kill 1"], timeout=60)
+    if result.exit_code == 0 or "137" in str(result.exit_code):  # kill 1 severs the exec
+        wait_until(all_pods_running_and_ready, timeout=600)
+    return result
+
+
 def pods_output() -> str:
     return kubectl(["-n", "openan", "get", "pods", "--no-headers"]).stdout or ""
 
@@ -105,7 +146,8 @@ def all_pods_running_and_ready() -> bool:
 
 
 def platform_base(transcript: str) -> str:
-    match = re.search(r"(?:platform|url)[^\n]{0,60}(https?://[^\s\"']+)", transcript or "", re.IGNORECASE)
+    # "Install complete" block: the platform URL is the wizard's own summary.
+    match = re.search(r"Platform:\s*(https?://[^\s\"']+)", transcript or "", re.IGNORECASE)
     if match:
         return match.group(1).rstrip("/")
     ip = kubectl_jsonpath("ingress", "{.items[0].status.loadBalancer.ingress[0].ip}").stdout.strip()
@@ -113,3 +155,48 @@ def platform_base(transcript: str) -> str:
         return f"https://{ip}"
     host = kubectl_jsonpath("ingress", "{.items[0].spec.rules[0].host}").stdout.strip()
     return f"https://{host}" if host else "https://127.0.0.1"
+
+
+def add_vendor_credential(identity: str = "e2e-vendor") -> str:
+    """Append a vendor_agent credential to the registry's
+    integration_credentials.conf and return the plaintext bearer token.
+
+    Card writes on the main port are restricted to vendor_agent credentials
+    (agent_registry/main_auth.py); the wizard only provisions a partner_service
+    token for orchestration, which is 403 there. Reuses an existing entry when
+    the identity is already present (the parser rejects duplicate identities).
+    The Secret is recreated by the wizard on each install (uninstall deletes
+    it), so no cleanup needed.
+    """
+    hmac_key = kubectl_jsonpath(
+        "secret/openan-rc-runtime", "{.data.INTEGRATION_TOKEN_HMAC_KEY}").stdout.strip()
+    if not hmac_key:
+        raise RuntimeError("openan-rc-runtime Secret has no INTEGRATION_TOKEN_HMAC_KEY")
+    hmac_key = base64.b64decode(hmac_key).decode()
+    conf_b64 = kubectl_jsonpath(
+        "secret/openan-rc-credentials", "{.data.integration_credentials\\.conf}").stdout.strip()
+    conf = base64.b64decode(conf_b64).decode() if conf_b64 else ""
+    token = secrets.token_urlsafe(48)
+    digest = hmac.new(hmac_key.encode(), token.encode(), hashlib.sha256).hexdigest()
+    if f"credential.{identity}.identity=" in conf:
+        # Identity already present (e.g. from an earlier interrupted run); the
+        # plaintext token is unrecoverable, so rotate the entry in place.
+        lines = [l for l in conf.splitlines()
+                 if not l.startswith(f"credential.{identity}.")]
+        conf = "\n".join(l for l in lines if l.strip()) + "\n"
+    conf += (f"credential.{identity}.identity={identity}\n"
+             f"credential.{identity}.role=vendor_agent\n"
+             f"credential.{identity}.enabled=true\n"
+             f"credential.{identity}.token_hash={digest}\n")
+    patch = json.dumps([{"op": "replace",
+                         "path": "/data/integration_credentials.conf",
+                         "value": base64.b64encode(conf.encode()).decode()}])
+    result = kubectl(["-n", "openan", "patch", "secret", "openan-rc-credentials",
+                      "--type=json", "-p", patch])
+    if result.exit_code != 0:
+        raise RuntimeError(f"failed to patch openan-rc-credentials: {result.output}")
+    # The credentials file is read at startup; recycle the registry pod so the
+    # new/rotated entry is picked up, then wait for it to come back Ready.
+    kubectl(["-n", "openan", "delete", "pod", "-l", "app=registry-center", "--wait=false"])
+    wait_until(all_pods_running_and_ready, timeout=600)
+    return token
