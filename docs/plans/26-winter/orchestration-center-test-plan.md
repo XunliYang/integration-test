@@ -20,7 +20,9 @@ Verify that `orchestration-center` delivers the 26-winter sandbox-verification c
 
 - Cross-module calls between `orchestration-center` and `registry-center` (AgentCard registration, listing and resolution)
 - The sandbox dry-run lifecycle over the internal API: start, poll, read report and events, delete, plus the Stub Template contract
-- Business-level negatives of the dry run: structurally invalid PSOP (cycle), unregistered task agent, stub error scenario, invalid template payload
+- Business-level negatives of the dry run: structurally invalid PSOP (cycle), unreachable/isolated step (warning level), unregistered task agent, stub error scenario, invalid template payload
+- The empty-registry contract on both sides of the boundary: the AgentCard listing answers an empty collection, and the dry run rejects the run deterministically when no card exists
+- The remaining stub scenarios (`delay`, `negotiation`) and the stub-template specificity rule when several templates match the same subtask
 
 **Out of scope**:
 
@@ -73,7 +75,7 @@ Verify that `orchestration-center` delivers the 26-winter sandbox-verification c
 Aligned with Framework §10; applicable to this feature:
 
 - [x] Functional testing (dry-run report content, context passing, template contract, PSOP round-trip)
-- [x] Exception testing (business negatives: invalid structure, unregistered agent, stub error scenario, skill mismatch, invalid template payload)
+- [x] Exception testing (business negatives: invalid structure, unreachable/isolated step warning, unregistered agent, stub error scenario, skill mismatch, invalid template payload, empty registry)
 - [ ] Performance testing / [ ] Stress testing / [ ] Long-duration stability / [ ] Reliability-fault injection
 - [ ] Security testing / [ ] Compatibility testing / [ ] Deployment mode testing
 
@@ -87,8 +89,8 @@ Aligned with Framework §10; applicable to this feature:
 
 ### 3.4 Automation Strategy
 
-- The 8 cases (6 P0/P1 plus 2 P2) are automated in pytest under `e2e/orchestration-center/` with `language_profile:python`; 100% of P0/P1 cases are automated, as the contract requires.
-- `execution_strategy` layering: `smoke` for the two P0 cases (`sandbox-verify-001`, `sandbox-verify-002`), `full` for the other 6.
+- The 14 cases (9 P0/P1 plus 5 P2) are automated in pytest under `e2e/orchestration-center/` with `language_profile:python`; 100% of P0/P1 cases are automated, as the contract requires.
+- `execution_strategy` layering: `smoke` for the two P0 cases (`sandbox-verify-001`, `sandbox-verify-002`), `full` for the other 12.
 - Assertions are deterministic: HTTP status codes, envelope `code`/`status`/`data` fields, report field values (`verdict`, `mode`, `verification_scope`, `route_policy`, `execution_path`, `context_trace`, `stub_interactions`, `static_checks`), PSOP JSON and dispatch counts.
 - Failed cases are archived as issues with the sandbox report JSON (or the SSE transcript), the request payload and backend logs attached.
 
@@ -103,6 +105,7 @@ Aligned with Framework §10; applicable to this feature:
 | SCN-orchestration-center-003 | Structure integrity gate: an invalid PSOP is rejected by static validation and no stub execution happens | orchestration-center, registry-center | P1 | Case `sandbox-verify-003` |
 | SCN-orchestration-center-004 | Exception paths in the dry-run: stub error scenario report, unregistered task agent, stub template override and invalid template payloads | orchestration-center, registry-center | P1-P2 | Cases `sandbox-verify-004` to `sandbox-verify-007` |
 | SCN-orchestration-center-005 | Editor snapshot dry-run: an unsaved PSOP is verified without persistence and a malformed snapshot is rejected | orchestration-center, registry-center | P2 | Case `sandbox-verify-008` |
+| SCN-orchestration-center-006 | Empty-registry and extended stub-scenario coverage: the empty AgentCard listing, the deterministic no-agents rejection of a dry run, an isolated-step reachability warning, the `delay` and `negotiation` stub scenarios, and stub-template specificity | orchestration-center, registry-center | P1-P2 | Cases `sandbox-verify-009` to `sandbox-verify-014` |
 
 ---
 
@@ -111,7 +114,7 @@ Aligned with Framework §10; applicable to this feature:
 ### 5.1 Numbering Rules
 
 - FIT cases: `[FIT-orchestration-center-{topic}-{3 digits}]`, for example `[FIT-orchestration-center-sandbox-verify-001]`
-- Topic used by this plan: `sandbox-verify` (001-008); the sequence is continuous from 001
+- Topic used by this plan: `sandbox-verify` (001-014); the sequence is continuous from 001
 - Test file naming (Framework §6.1): `e2e/orchestration-center/test_sandbox_verify.py`; test functions named `test_action_expected_result` (for example `test_run_valid_psop_returns_pass_report`)
 
 ### 5.2 Priority Definitions
@@ -122,7 +125,7 @@ Aligned with Framework §10; applicable to this feature:
 | P1 | Main functionality coverage and business negatives of the feature | 100% |
 | P2 | Complex variants and payload-level negatives | >= 80% |
 
-Case distribution (must equal the CSV): 8 cases - **P0: 2, P1: 4, P2: 2**; `sandbox-verify` 8 cases (P0 2 / P1 4 / P2 2, all `Automatable=Yes`). Case types: Functional Test 5, Exception Test 3. Execution strategy: `smoke` 2, `full` 6.
+Case distribution (must equal the CSV): 14 cases - **P0: 2, P1: 7, P2: 5**; `sandbox-verify` 14 cases (P0 2 / P1 7 / P2 5, all `Automatable=Yes`). Case types: Functional Test 9, Exception Test 5. Execution strategy: `smoke` 2, `full` 12.
 
 ### 5.3 Label Dimensions
 
@@ -130,20 +133,20 @@ Every case carries, in code: `feature=orchestration-center`, `environment=with-w
 
 ### 5.4 Case Table
 
-The 8 cases are carried in `docs/plans/26-winter/testcases-orchestration-center.csv` (fixed 16 columns, UTF-8, RFC4180 quoting). Every row's Requirement Link carries the component requirement issue (orchestration-center#76) joined with the integration-test tracking issue (#11). Field rules follow `docs/templates/testcases-template-fields.md`.
+The 14 cases are carried in `docs/plans/26-winter/testcases-orchestration-center.csv` (fixed 16 columns, UTF-8, RFC4180 quoting). Every row's Requirement Link carries the component requirement issue (orchestration-center#76) joined with the integration-test tracking issue (#11). Field rules follow `docs/templates/testcases-template-fields.md`.
 
 | Topic | Channel under test | Cases | Automated this cycle |
 |------|------|------|------|
-| `sandbox-verify` | `POST /rest/v1/orchestrate/sandbox/{workflow_id}/run`, `GET/DELETE /rest/v1/orchestrate/sandbox/verifications[/{id}]`, `GET .../verifications/{id}/events`, `GET/PUT /rest/v1/orchestrate/sandbox/templates/{workflow_id}` | 001-008 | Yes - 8 of 8 |
+| `sandbox-verify` | `POST /rest/v1/orchestrate/sandbox/{workflow_id}/run`, `GET/DELETE /rest/v1/orchestrate/sandbox/verifications[/{id}]`, `GET .../verifications/{id}/events`, `GET/PUT /rest/v1/orchestrate/sandbox/templates/{workflow_id}`, `GET /rest/v1/registry-center/agent-cards[/{organization}/{name}]` | 001-014 | Yes - 14 of 14 |
 
-Requirement coverage: integration-test#11 -> `sandbox-verify-001` to `sandbox-verify-008` (8 cases, executable). Upstream orchestration-center#76 is recorded in the plan header for the requirement traceability matrix. Tracking issue #10 (role-based orchestration) has no cases in this plan by design; see §1.2.
+Requirement coverage: integration-test#11 -> `sandbox-verify-001` to `sandbox-verify-014` (14 cases, executable). Upstream orchestration-center#76 is recorded in the plan header for the requirement traceability matrix. Tracking issue #10 (role-based orchestration) has no cases in this plan by design; see §1.2.
 
 ### 5.5 Case Design Requirements
 
 - Every case includes preconditions (environment/data state only, max 6 items), numbered steps whose last step is the cleanup action, `see result N` markers, and one machine-checkable expected result per marker.
 - Sandbox assertions use the report contract verified in `orchestrate/sandbox/models.py` (`SandboxRunReport`) and `orchestrate/validation/sandbox_validator.py` (`SandboxCheck`, check ids `structure.*` and `agents.*`).
 - Cases are independent: each one creates its own PSOP, AgentCards and verifications, and deletes them in the final step. Session-level fixtures are limited to read-only configuration (base URLs, tokens).
-- The sandbox cases require a **non-empty** Registry Center: `get_agent_cards()` returns `404 "No available agents found"` when the registry lists nothing (`orchestrate/server/response_utils.py`), and the dry-run start route propagates that status.
+- Except for `sandbox-verify-009` and `sandbox-verify-010`, which are the explicit empty-registry cases, the sandbox cases require a **non-empty** Registry Center: `get_agent_cards()` returns `404 "No available agents found"` when the registry lists nothing (`orchestrate/server/response_utils.py`), and the dry-run start route propagates that status. The listing itself stays a `200` with an empty `agentCards` list at the registry layer, so case `sandbox-verify-009` asserts the dependency layer and case `sandbox-verify-010` asserts the orchestration layer instead of conflating them.
 
 ---
 
@@ -171,10 +174,10 @@ Requirement coverage: integration-test#11 -> `sandbox-verify-001` to `sandbox-ve
 
 ### 6.3 Test Data
 
-- AgentCard fixtures: sandbox agents `agent-a`/`agent-b` (Task-T, matching skills), one unregistered name `missing-agent`.
+- AgentCard fixtures: sandbox agents `agent-a`/`agent-b` (Task-T, matching skills), one unregistered name `missing-agent`, and the reserved empty-registry probe identity `it-org`/`it-empty-probe` that is never registered.
 - Agent processes: the `openan-demo` `mockagent` scenario package, or the in-repo samples started with `python -m samples.start_agents_server` from the `orchestration-center` repository. Only the Host Agent registration matters; the sandbox cases never start domain agent endpoints.
-- PSOP fixtures: linear 2-step, parallel 2-branch plus SelfLoop merge, cyclic (invalid), missing-agent, and an unsaved editor snapshot `draft-workflow-001`.
-- Stub template fixtures: step-scoped (`step` + `subtask_index`), agent-scoped, invalid-field, out-of-range `delay_ms`, and 200/201 entry boundary lists.
+- PSOP fixtures: linear 2-step, parallel 2-branch plus SelfLoop merge, cyclic (invalid), missing-agent, an isolated-step fixture (`step_1` -> `endNode` plus a `step_2` with no next condition), a single-step two-subtask fixture used for template specificity, and an unsaved editor snapshot `draft-workflow-001`.
+- Stub template fixtures: step-scoped (`step` + `subtask_index`), agent-scoped, invalid-field, out-of-range `delay_ms`, a five-entry specificity ladder (generic / `card_name` / `agent` / `agent`+`skill` / `step`+`subtask_index`), and 200/201 entry boundary lists. The `delay` and `negotiation` scenario cases deliberately pass no template so the generated default template (`generated-card-default`) is exercised.
 - All assets are generated by fixtures at runtime and deleted in the case cleanup step; no fixture is committed with real credentials.
 
 ### 6.4 Environment Variables
@@ -187,7 +190,7 @@ Requirement coverage: integration-test#11 -> `sandbox-verify-001` to `sandbox-ve
 
 | Gate | Criteria | Source |
 |------|------|------|
-| TRR entry (into FIT) | P0/P1 pass rate = 100% over the 6 automatable P0/P1 cases (`sandbox-verify-001` to `sandbox-verify-006`), P2 >= 80% over the P2 cases (`sandbox-verify-007`, `sandbox-verify-008`), unit tests of the module not decreasing, image deployable, cases merged | Framework §8.1 |
+| TRR entry (into FIT) | P0/P1 pass rate = 100% over the 9 automatable P0/P1 cases (`sandbox-verify-001` to `sandbox-verify-006` plus `sandbox-verify-009` to `sandbox-verify-011`), P2 >= 80% over the 5 P2 cases (`sandbox-verify-007`, `sandbox-verify-008`, `sandbox-verify-012` to `sandbox-verify-014`), unit tests of the module not decreasing, image deployable, cases merged | Framework §8.1 |
 | FIT exit | Overall pass rate >= 95% over the automatable cases, every failed case archived as an issue with `skip-temporarily`, report reviewed by the Integration Testing WG | Framework §8.2 |
 | SIT exit / release entry | SIT pass rate = 100% with no skips, 7x24h without P0/P1 failures, install/upgrade/rollback passed, no open P0 (P1 only with workarounds) | Framework §8.3 |
 
@@ -199,7 +202,7 @@ Feature-specific exit condition: the two P0 cases (`sandbox-verify-001`, `sandbo
 
 - Severity and SLA per Framework §9.1 (P0: 24h response / fix in the current release; P1: 3 business days; P2: next release).
 - Each failed case is archived as an issue containing the sandbox report JSON (or the SSE transcript), the execution record, the request payload and backend logs.
-- Fix PRs must add a regression case to the matching topic and re-run all cases of this feature (8 this cycle).
+- Fix PRs must add a regression case to the matching topic and re-run all cases of this feature (14 this cycle).
 - A case that fails because the promised behaviour is not implemented yet is recorded as a product gap, not as a case defect.
 
 ---
@@ -209,8 +212,8 @@ Feature-specific exit condition: the two P0 cases (`sandbox-verify-001`, `sandbo
 | Milestone | Date | Owner | Deliverable |
 |------|------|--------|--------|
 | Test plan review approved | 2026-11-25 | Integration Testing WG | This plan merged into `docs/plans/26-winter/` |
-| Case writing completed | 2026-12-05 | Zhoujie628 | `testcases-orchestration-center.csv` + automation for the 8 `sandbox-verify` cases under `e2e/orchestration-center/` |
-| TRR review | 2026-12-12 | Integration Testing WG | TRR conclusion (Test Checklist Chapter 1); gate set = the 6 automatable P0/P1 `sandbox-verify` cases |
+| Case writing completed | 2026-12-05 | Zhoujie628 | `testcases-orchestration-center.csv` + automation for the 14 `sandbox-verify` cases under `e2e/orchestration-center/` |
+| TRR review | 2026-12-12 | Integration Testing WG | TRR conclusion (Test Checklist Chapter 1); gate set = the 9 automatable P0/P1 `sandbox-verify` cases |
 | FIT completed / report review | 2026-12-18 | Zhoujie628 | Test report under `docs/reports/26-winter/` |
 
 ---
@@ -221,7 +224,7 @@ Feature-specific exit condition: the two P0 cases (`sandbox-verify-001`, `sandbo
 |------|------|---------|
 | **Issue #10 (role-based orchestration) is out of scope this cycle**: its design has not passed TSC review and the role abstraction does not exist in the code (`Task` in `orchestrate/core/model/psop.py:45-51` still requires `agent`, no role field; `orchestrate/runtime/exec_engine.py` has no role/instance-mapping logic) | No FIT coverage for #10 until handover; the tracking issue must not be closed on this plan's account | The tracking issue #10 records the handover condition; when #74 lands, role-mapping case design is submitted as a follow-up PR and this plan is updated in the same change (Framework §4.2) |
 | Sandbox routes are internal-only (`/rest/v1/orchestrate/sandbox/*`); they are not exposed on `/api/v1` | Automation must use the internal API and therefore needs an account session token; an external-API health check would misleadingly report the feature as absent | Cases use the internal API with a Bearer token; the fact is pinned by `tests/test_sandbox_api.py::test_sandbox_routes_are_not_exposed_by_external_api` |
-| The dry-run requires a non-empty Registry Center (otherwise `404 "No available agents found"`), so it cannot run as a pure stub-only offline dry-run | Sandbox cases fail for the wrong reason in a bare environment | Every sandbox case lists `registry-center` in `Component Deps` and registers its AgentCards in the case; the precondition states that agent endpoints are not started, which preserves the "no real agent contacted" property |
+| The dry-run requires a non-empty Registry Center (otherwise `404 "No available agents found"`), so it cannot run as a pure stub-only offline dry-run | Sandbox cases fail for the wrong reason in a bare environment | Every sandbox case lists `registry-center` in `Component Deps` and registers its AgentCards in the case; the precondition states that agent endpoints are not started, which preserves the "no real agent contacted" property. The empty-registry contract itself is covered on purpose by `sandbox-verify-009` (dependency layer, `200` with an empty collection) and `sandbox-verify-010` (orchestration layer, deterministic `404`), which run against a deliberately empty store |
 | Stub templates saved with `PUT /sandbox/templates/{workflow_id}` are **not** automatically applied to a run; the run uses the `templates` array of the request body | A reviewer could expect persisted templates to drive the next dry-run | Case `sandbox-verify-006` asserts both behaviours explicitly (persistence via GET, application via the request body) so the actual contract is locked |
 | Unstable or unreachable external LLM / sample agents | Flaky cases | No executed case depends on LLM output (PSOPs are created through the API); sandbox cases need no domain agent endpoint |
 | Sandbox timeout and concurrency are code defaults (`sandbox_run_timeout_seconds=60`, `sandbox_max_concurrent_runs=4`) and are absent from `server.conf.example` | A slow environment produces `status=timed_out` instead of a verdict, and parallel cases queue | Cases poll with a bounded retry budget and never assert wall-clock time; the two keys are documented in the e2e README and may be raised in the FIT values file |
@@ -234,8 +237,8 @@ Feature-specific exit condition: the two P0 cases (`sandbox-verify-001`, `sandbo
 | Deliverable | Archive Path |
 |--------|---------|
 | Test plan (this document) | `docs/plans/26-winter/orchestration-center-test-plan.md` |
-| Case table CSV (8 cases, all executable) | `docs/plans/26-winter/testcases-orchestration-center.csv` |
-| Test code (8 `sandbox-verify` cases) | `e2e/orchestration-center/` |
+| Case table CSV (14 cases, all executable) | `docs/plans/26-winter/testcases-orchestration-center.csv` |
+| Test code (14 `sandbox-verify` cases) | `e2e/orchestration-center/` |
 | Test report | `docs/reports/26-winter/` (template: `test-report-template.md`) |
 
 ---
