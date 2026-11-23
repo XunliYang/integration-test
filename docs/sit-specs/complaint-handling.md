@@ -66,11 +66,11 @@ diagnosis conclusion -> autonomous closure
 | `registry-center` (backend `agent_registry`, HTTPS :5000) | Agent card registration / discovery for all domain agents | mTLS client identity required (`REGISTRY_CLIENT_CERT/KEY/CA_CERT`) |
 | `orchestration-center` (backend `orchestrate` :5001, `host_agent`, `samples/`) | Workflow recall and execution; complaint handling agent host | Runtime dependency on registry-center (`AGENT_REGISTRY_URL` / shared `openan-net`); `workflow-exec-engine>=0.1.1,<0.2`, `a2a-t-sdk>=1.2.0,<2` |
 | `a2a-t-sdk-python` | Agent-to-agent task collaboration | Version per orchestration-center constraint above |
-| Domain agents (Customer Care, Billing, CDN, Vendor FAN) | Mock/sample agents from `openan-demo` mockagent scenario package or orchestration-center `samples/` | Endpoints via `MOCK_AGENTS_HOST` / `SAMPLE_AGENTS_HOST` |
+| Domain agents (Customer Care, Billing, CDN, Vendor FAN) | Sample mock agents shipped with the distribution: orchestration-center `samples/` (started via `start_agents_server.py`, registered into Registry Center) and the `openan-demo` mockagent scenario package | Endpoints via `MOCK_AGENTS_HOST` / `SAMPLE_AGENTS_HOST` |
 | NOC expert endpoint (simulated) | Receives escalation with diagnostic context | Test-side stub; contract to be confirmed (see §9) |
 | LLM dependency | Intent classification / workflow generation where used | `USE_MOCK_LLM=true` for deterministic CI runs; real-LLM runs are an optional variant with deterministic assertions only |
 
-All components deploy from the RC image package under test (`IMAGE_REGISTRY` / `IMAGE_TAG`), in `DEPLOY_MODE=online-helm` (real cluster, `KUBECONFIG`) or `offline-compose`. SIT runs on a real environment per Framework §5.1; mock agents are allowed as scenario participants, but the centers under test must be the real RC builds.
+All components deploy from the RC image package under test (`IMAGE_REGISTRY` / `IMAGE_TAG`), in `DEPLOY_MODE=online-helm` (real cluster, `KUBECONFIG`) or `offline-compose`. SIT runs on a real environment per Framework §5.1.
 
 ## 3. Environment and Configuration Contract
 
@@ -201,5 +201,4 @@ P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epi
 | --- | --- | --- | --- |
 | 1 | NOC expert handoff interface contract (endpoint, payload schema, terminal state naming) | orchestration-center WG | Blocks 005 assertions; until confirmed, 005 stays draft |
 | 2 | Unknown-category fallback contract (explicit no-match response vs escalation) | orchestration-center WG | Blocks 007 expected result |
-| 3 | Mock agent scenario package availability for Billing / CDN / Vendor FAN in `openan-demo` | Integration Testing WG | Blocks 002/004/006 if only FAN samples exist today |
-| 4 | Real-LLM variant inclusion in RC runs (deterministic assertions only) | Integration Testing WG | Optional variant; default CI stays `USE_MOCK_LLM=true` |
+| 3 | Real-LLM variant inclusion in RC runs (deterministic assertions only) | Integration Testing WG | Optional variant; default CI stays `USE_MOCK_LLM=true` |
