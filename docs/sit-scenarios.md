@@ -69,7 +69,7 @@ Slug alignment: S1 reuses the existing `complaint-handling` slug already present
 
 ### S4 - SPN dedicated-line complaint, diagnosis only (Phase 1)
 
-- **Closed-loop scope**: complaint via 10086 -> EMOS -> WAIMO -> transmission workbench agent -> SPN domain agent; end-to-end automatic diagnosis of a live dedicated line; diagnosis conclusion confirmed by human experts. No repair or closure in scope.
+- **Closed-loop scope**: complaint via 10086 -> EOMS -> WAIMO -> transmission workbench agent -> SPN domain agent; end-to-end automatic diagnosis of a live dedicated line; diagnosis conclusion confirmed by human experts. No repair or closure in scope.
 - **Topology**: two-layer agent collaboration, single city; Registry Center + Orchestration Center + transmission workbench + one SPN domain agent (NCE).
 - **Protocol capabilities**: basic capabilities only - registration, orchestration, basic business flows.
 - **Variants**: two validated integration approaches - (a) workbench directly invokes the SPN agent A2A-T interface; (b) orchestration-center-driven invocation.

@@ -15,7 +15,7 @@ This specification defines the SIT requirements for scenario S4 (SPN Dedicated-L
 
 **In scope** - the single-city, two-layer diagnosis closed loop:
 
-1. Complaint intake: an enterprise dedicated-line complaint flows through the call center / process center / fault center (10086 / EMOS / WAIMO, simulated by test stubs) to the transmission workbench agent;
+1. Complaint intake: an enterprise dedicated-line complaint flows through the call center / process center / fault center (10086 / EOMS / WAIMO, simulated by test stubs) to the transmission workbench agent;
 2. Agent discovery: the workbench agent discovers the SPN domain agent via the Registry Center;
 3. Diagnosis execution: workbench agent and SPN domain agent collaborate over A2A-T basic capabilities (registration, orchestration, basic business flows) to diagnose the dedicated line using near-end and far-end network data;
 4. Conclusion: a structured diagnosis conclusion (root cause classification + supporting evidence) is produced and made available for human expert confirmation.
@@ -50,7 +50,7 @@ This specification defines the SIT requirements for scenario S4 (SPN Dedicated-L
 ### 2.1 Topology (single city, two agent layers)
 
 ```
-10086 / EMOS / WAIMO fault center (test stubs)
+10086 / EOMS / WAIMO fault center (test stubs)
         | complaint ticket
         v
 transmission workbench agent (host_agent + workflow-exec-engine, embeds a2a-t-sdk)
@@ -84,7 +84,7 @@ transmission workbench agent (host_agent + workflow-exec-engine, embeds a2a-t-sd
 | `orchestration-center` (:5001) | Approach B workflow composition/retrieval and driven invocation | `workflow-exec-engine>=0.1.1,<0.2`, `a2a-t-sdk>=1.2.0,<2`; runtime dependency on registry-center |
 | Transmission workbench agent (`host_agent` + `workflow-exec-engine`) | Diagnosis driver; supports both integration approaches | Embeds `a2a-t-sdk`; approach selection mechanism per §9 item 2 |
 | SPN domain agent | Sample mock agent with S4 line-data scenario payloads | Registered into Registry Center; endpoints via `MOCK_AGENTS_HOST` / `SAMPLE_AGENTS_HOST` |
-| 10086 / EMOS / WAIMO stubs | Ticket intake source; conclusion receiver | Test-side stubs; ticket schema per §9 item 3 |
+| 10086 / EOMS / WAIMO stubs | Ticket intake source; conclusion receiver | Test-side stubs; ticket schema per §9 item 3 |
 | Human expert confirmation stub | Receives conclusion + evidence for confirmation | Test-side stub; contract per §9 item 5 |
 | LLM dependency | Diagnosis reasoning where used | `USE_MOCK_LLM=true` for deterministic CI runs; real-LLM runs are an optional variant with deterministic assertions only |
 
@@ -222,7 +222,7 @@ P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epi
 | --- | --- | --- | --- |
 | 1 | Diagnosis conclusion schema: root cause classification vocabulary (incl. "no fault" and "insufficient data" classes), near/far-end evidence fields, degraded-terminal-state naming | workbench/SPN agent contributors + Integration Testing WG | Blocks 001/004/008 assertions |
 | 2 | Integration-approach selection mechanism: how the lab forces approach A (direct) vs B (orchestration-driven) per execution | orchestration-center WG | Blocks 002/003; both approaches are mandatory coverage |
-| 3 | Intake stub ticket schema (10086/EMOS/WAIMO chain); reuse of S2 stub pattern | Integration Testing WG | Blocks ticket fixtures |
+| 3 | Intake stub ticket schema (10086/EOMS/WAIMO chain); reuse of S2 stub pattern | Integration Testing WG | Blocks ticket fixtures |
 | 4 | S4 line-data scenario payloads on the shipped sample agents (optical power / module type / attenuation fixtures; test data authoring, not new agents) | Integration Testing WG | Blocks fixture content for all cases |
 | 5 | Expert confirmation interface contract (request payload, ticket state naming) | workbench contributors | Blocks 007 assertions |
 | 6 | Real-LLM variant inclusion in RC runs (deterministic assertions only) | Integration Testing WG | Optional variant; default CI stays `USE_MOCK_LLM=true` |
