@@ -81,6 +81,11 @@ def install_online_helm(
     components_answer: str | None = None,
     evidence_stem: str | None = None,
 ) -> CommandResult:
+    # configure.py opens deployment.generated.json with O_EXCL; a leftover file
+    # from a prior interrupted run makes it fail with EEXIST. Remove it first.
+    generated = online_install_dir(cfg) / "deployment.generated.json"
+    if generated.exists():
+        generated.unlink()
     return run_interactive(
         str(online_install_dir(cfg) / "install.sh"),
         cwd=online_install_dir(cfg),
