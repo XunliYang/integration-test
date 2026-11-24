@@ -35,7 +35,7 @@ Workflow branches and sub-flows inside one scenario (e.g., complaint-category ro
 | --- | --- | --- | --- | --- | --- |
 | S1 | Home broadband complaint handling | `complaint-handling` | Case 1 (branches A + B merged) | Fault diagnosis, fixed workflow | [Draft v0.1](sit-specs/complaint-handling.md) |
 | S2 | Mobile cross-domain collaborative complaint handling | `cross-domain-complaint` | Case 2, Practice 1 | Fault diagnosis, dynamic negotiation | [Draft v0.1](sit-specs/cross-domain-complaint.md) |
-| S3 | Intent-driven dynamic energy saving (electricity-cost optimization) | `intent-energy-saving` | Case 2, Practice 2 | Optimization / control closed loop | Pending |
+| S3 | Intent-driven dynamic energy saving (electricity-cost optimization) | `intent-energy-saving` | Case 2, Practice 2 | Optimization / control closed loop | [Draft v0.1](sit-specs/intent-energy-saving.md) |
 | S4 | SPN dedicated-line complaint - diagnosis only (single city, two layers) | `spn-line-diagnosis` | Case 3, Phase 1 | Fault diagnosis, basic protocol capabilities | Pending |
 | S5 | SPN dedicated-line complaint - full process (cross city, three layers) | `spn-line-full-process` | Case 3, Phase 2 | Diagnosis + restoration + closure, advanced protocol capabilities | Pending |
 
