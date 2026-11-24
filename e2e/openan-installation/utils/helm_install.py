@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -11,6 +12,8 @@ from pathlib import Path
 
 from utils.env import InstallConfig
 from utils.shell import CommandResult, curl_request, kubectl, kubectl_jsonpath, run, run_interactive, wait_until
+
+log = logging.getLogger("openan-e2e.helm")
 
 
 def online_install_dir(cfg: InstallConfig) -> Path:
@@ -86,17 +89,23 @@ def install_online_helm(
     generated = online_install_dir(cfg) / "deployment.generated.json"
     if generated.exists():
         generated.unlink()
-    return run_interactive(
+    log.info("install_online_helm: components=%s evidence=%s", components_answer or "all", evidence_stem)
+    result = run_interactive(
         str(online_install_dir(cfg) / "install.sh"),
         cwd=online_install_dir(cfg),
         answers=wizard_answers(cfg, components_answer),
         timeout=3600,
         evidence_stem=evidence_stem,
     )
+    log.info("install_online_helm exit=%d output_tail=%s", result.exit_code, result.output[-200:])
+    return result
 
 
 def uninstall_online_helm(cfg: InstallConfig) -> CommandResult:
-    return run("./uninstall.sh", cwd=online_install_dir(cfg), timeout=1800)
+    log.info("uninstall_online_helm")
+    result = run("./uninstall.sh", cwd=online_install_dir(cfg), timeout=1800)
+    log.info("uninstall_online_helm exit=%d", result.exit_code)
+    return result
 
 
 def online_install_dir_chart(cfg: InstallConfig) -> Path:
@@ -113,9 +122,11 @@ def set_registry_signing(cfg: InstallConfig, enabled: bool) -> CommandResult:
     which is reverted when the container restarts from the image layer).
     """
     value = "true" if enabled else "false"
+    log.info("set_registry_signing: REGISTRY_SIGNATURE_VALIDATION_ENABLED=%s", value)
     result = kubectl(["-n", "openan", "set", "env", "deploy/registry-center",
                       f"REGISTRY_SIGNATURE_VALIDATION_ENABLED={value}"])
     if result.exit_code != 0:
+        log.error("set_registry_signing: kubectl set env failed: %s", result.output)
         return result
     # Rolling restart so the new env reaches the running process; wait for the
     # health endpoint to confirm the registry is serving again.
@@ -126,6 +137,7 @@ def set_registry_signing(cfg: InstallConfig, enabled: bool) -> CommandResult:
         _, status = curl_request("GET", f"{platform_base('')}/registry/health")
         return status == "200"
     wait_until(_registry_serving, timeout=120)
+    log.info("set_registry_signing: registry serving again")
     return result
 
 
@@ -197,9 +209,12 @@ def add_vendor_credential(identity: str = "e2e-vendor") -> str:
     result = kubectl(["-n", "openan", "patch", "secret", "openan-rc-credentials",
                       "--type=json", "-p", patch])
     if result.exit_code != 0:
+        log.error("add_vendor_credential: patch failed: %s", result.output)
         raise RuntimeError(f"failed to patch openan-rc-credentials: {result.output}")
+    log.info("add_vendor_credential: patched openan-rc-credentials, recycling registry pod")
     # The credentials file is read at startup; recycle the registry pod so the
     # new/rotated entry is picked up, then wait for it to come back Ready.
     kubectl(["-n", "openan", "delete", "pod", "-l", "app=registry-center", "--wait=false"])
     wait_until(all_pods_running_and_ready, timeout=600)
+    log.info("add_vendor_credential: registry pod ready")
     return token
