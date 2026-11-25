@@ -126,58 +126,120 @@ Rules: no hardcoded IPs, credentials, or tokens; the NE simulator and tariff sou
 
 ## 5. Case Matrix
 
-| Case ID | Name | Variant coverage | Priority | Execution |
-| --- | --- | --- | --- | --- |
-| `[SIT-intent-energy-saving-001]` | Five-stage closed loop completes in valley period | full loop, single cell | P0 | smoke, full |
-| `[SIT-intent-energy-saving-002]` | Cost-first decision correctness against tariff schedule | decision quality (precomputed expectation) | P0 | smoke, full |
-| `[SIT-intent-energy-saving-003]` | Experience guardrail blocks forbidden action on high-load cell | guardrail variant | P1 | full |
-| `[SIT-intent-energy-saving-004]` | Tariff period switch drives adapted actions | valley -> peak transition | P1 | full |
-| `[SIT-intent-energy-saving-005]` | Effect evaluation compares baseline and feeds back | evaluation / feedback stage | P1 | full |
-| `[SIT-intent-energy-saving-006]` | NE execution failure: defined degraded state, no inconsistent NE state | fault injection | P1 | full |
-| `[SIT-intent-energy-saving-007]` | Explicit restoration path and state consistency | rollback / write safety | P2 | full |
-| `[SIT-intent-energy-saving-008]` | Multi-cell / concurrent intent scheduling isolation | concurrency | P2 | full |
+| Case ID | Name | Variant coverage | Priority | Status | Execution |
+| --- | --- | --- | --- | --- | --- |
+| `[SIT-intent-energy-saving-001]` | Five-stage closed loop completes in valley period | full loop, single cell | P0 | Draft | excluded until ready |
+| `[SIT-intent-energy-saving-002]` | Cost-first decision correctness against tariff schedule | decision quality (precomputed expectation) | P0 | Draft | excluded until ready |
+| `[SIT-intent-energy-saving-003]` | Experience guardrail blocks forbidden action on high-load cell | guardrail variant | P1 | Draft | excluded until ready |
+| `[SIT-intent-energy-saving-004]` | Tariff period switch drives adapted actions | valley -> peak transition | P1 | Draft | excluded until ready |
+| `[SIT-intent-energy-saving-005]` | Effect evaluation compares baseline and feeds back | evaluation / feedback stage | P1 | Draft | excluded until ready |
+| `[SIT-intent-energy-saving-006]` | NE execution failure: defined degraded state, no inconsistent NE state | fault injection | P1 | Draft | excluded until ready |
+| `[SIT-intent-energy-saving-007]` | Explicit restoration path and state consistency | rollback / write safety | P2 | Draft | excluded until ready |
+| `[SIT-intent-energy-saving-008]` | Multi-cell / concurrent intent scheduling isolation | concurrency | P2 | Draft | excluded until ready |
 
-P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epic issue).
+All cases are Draft because §9 item 1 blocks every execution assertion; the other open items add case-specific blockers. Draft definitions are design input only: they must not be implemented, scheduled, or counted in smoke/full execution or exit-gate denominators. A case may become Ready only after every open item affecting its preconditions, steps, assertions, and cleanup is resolved. P0/P1 rows use Requirement Link https://github.com/project-openan/integration-test/issues/34 and `Automatable=Yes` as the final automation requirement; that future automation requirement does not make a Draft row currently executable.
 
 ### 5.1 Case definitions (preconditions / steps / assertions / cleanup)
 
 **001 - Five-stage closed loop (P0)**
-- Preconditions: RC centers deployed; energy-saving agent + vendor wireless agent registered; NE simulator at baseline with one low-load cell; tariff fixture set to valley period; `USE_MOCK_LLM=true`.
-- Steps: (1) submit the cost-optimization intent; (2) observe perception, decision, scheduling, execution, evaluation stages via SDK/SSE events; (3) wait for loop terminal state with framework wait/retry.
-- Assertions: all five stages produced their stage events in order (perception data collected -> decision recorded -> scheduling task issued -> NE command executed -> evaluation produced); NE simulator state shows the decided sleep action applied to the target cell; evaluation report structure present with baseline and post-execution metric fields; loop reaches terminal `complete` state.
-- Cleanup: restore NE baseline and assert restoration; reset tariff period.
+- Status: **Draft**; blocked by the NE command/state/metrics contract and the other contracts needed to make its assertions executable.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: RC centers are deployed; energy-saving and vendor wireless agents are registered; the NE simulator has one low-load cell at a captured baseline; the tariff fixture is set to valley with a precomputed sleep expectation; `USE_MOCK_LLM=true`; event capture is armed.
+- Steps:
+  1. Submit the valley cost-optimization intent for the fixture cell and record its intent ID.
+  2. Collect perception, decision, scheduling, execution, and evaluation events for that intent until the terminal event, using framework wait/retry.
+  3. Query the decision record, NE command log/state, and evaluation report by intent/execution ID.
+- Assertions:
+  - Step 1: exactly one execution context is created for the submitted intent and its ID is present in all subsequently captured records.
+  - Step 2: the five stage events occur exactly once and in the order perception -> decision -> scheduling -> execution -> evaluation; the terminal state is `complete`.
+  - Step 3: the NE log contains exactly the precomputed sleep command for the target cell; queried cell state equals the expected post-action state; the evaluation contains the fixture baseline and post-execution metric values and references the same execution ID.
+- finally/Cleanup: in `finally`, restore the captured NE baseline, reset the tariff period, and clear captured events. Assert that every cell and metric equals its baseline, the tariff period equals baseline, and no test intent remains active; cleanup failure fails the case.
+- Automation: `e2e/system-integration/intent-energy-saving/test_intent_energy_saving.py::test_valley_intent_completes_five_stage_loop` (planned after contract confirmation).
 
 **002 - Cost-first decision correctness (P0)**
-- Preconditions: designed fixture - tariff schedule and cell loads such that the cost-optimal action set is precomputed (e.g., sleep cell X in valley, keep cell Y active; a naive energy-only policy would choose differently).
-- Steps: submit intent; capture the decided and executed action set.
-- Assertions: executed action set **equals the precomputed cost-optimal set** (cell identifiers + action types, exact match); decision record references the tariff period in effect; no action outside the vocabulary; the distinguishing cell (where cost-first and energy-only policies diverge) received the cost-first action.
+- Status: **Draft**; the action vocabulary, state schema, and executable decision record are not contracted.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: the fixture has valley/peak prices and two cells with fixed loads; its expected cost-first set is sleep cell X and keep cell Y active, while the fixture's energy-only alternative would also sleep Y; both cells start at captured baseline states; `USE_MOCK_LLM=true`.
+- Steps:
+  1. Submit the cost-optimization intent for cells X and Y under the valley fixture.
+  2. Capture the decision record and all resulting NE commands until execution terminates.
+  3. Query both cells and compare the normalized decided and executed cell/action pairs with the fixture expectation.
+- Assertions:
+  - Step 1: the execution references the valley tariff fixture ID and the two requested cell IDs.
+  - Step 2: the decision record identifies the valley period; every emitted command belongs to the contracted vocabulary; execution reaches `complete`.
+  - Step 3: decided and executed sets both equal exactly `{(X, sleep)}`; Y receives no sleep/shutdown command; final states are X asleep and Y active.
+- finally/Cleanup: in `finally`, restore both cells and the tariff fixture to baseline and clear the execution capture. Assert X and Y states and all baseline metrics are restored and no further command is emitted for the test execution; cleanup failure fails the case.
+- Automation: `e2e/system-integration/intent-energy-saving/test_intent_energy_saving.py::test_valley_decision_executes_exact_cost_first_action_set` (planned after contract confirmation).
 
 **003 - Experience guardrail (P1)**
-- Preconditions: tariff in valley (sleep economically attractive); target cell load above the guardrail threshold.
-- Steps: submit intent covering the high-load cell.
-- Assertions: no sleep/shutdown command issued to the protected cell (NE command log absence assertion); decision record contains the guardrail constraint as the exclusion reason (structured field, not text match); other eligible cells still acted upon; guardrail config unchanged after the run.
+- Status: **Draft**; blocked by the guardrail threshold/enforcement/reason contract as well as the NE command contract.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: valley pricing makes sleep economically attractive; protected cell H exceeds the fixture guardrail threshold and eligible cell L is below it; the expected action set contains sleep for L only; both cells and guardrail configuration are captured at baseline.
+- Steps:
+  1. Submit one intent covering H and L.
+  2. Capture the decision exclusions and NE commands until terminal state.
+  3. Query final cell states and reload the guardrail configuration.
+- Assertions:
+  - Step 1: the execution references exactly H and L and the active guardrail fixture version.
+  - Step 2: H has a structured guardrail exclusion with the contracted reason code; L has the precomputed sleep decision; the command log contains no sleep/shutdown command for H and exactly one expected sleep command for L; terminal state is `complete`.
+  - Step 3: H remains in its baseline state, L reaches asleep, and the guardrail configuration is byte-for-byte equal to baseline.
+- finally/Cleanup: in `finally`, restore both cells and guardrail configuration, then reset the tariff period. Assert H and L and their metrics equal baseline, guardrail configuration equals baseline, and no test command remains in flight; cleanup failure fails the case.
+- Automation: `e2e/system-integration/intent-energy-saving/test_intent_energy_saving.py::test_high_load_guardrail_excludes_protected_cell` (planned after contract confirmation).
 
 **004 - Tariff period switch (P1)**
-- Steps: start in valley with sleep actions applied; switch the tariff fixture to peak; trigger re-evaluation per product contract (periodic or event-driven - §9 item 2).
-- Assertions: new decision adapts to peak (wake actions for cells whose sleep is no longer cost-optimal, per precomputed expectation); no stale-period actions executed after the switch (command timestamps vs switch marker); NE state converges to the peak-optimal state; transition produces evaluation records for both periods.
+- Status: **Draft**; blocked by tariff injection/re-evaluation and NE command/state contracts.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: one cell starts at captured baseline; valley and peak fixtures have precomputed expected states asleep and active respectively; the fixture exposes a controllable period marker and the contracted re-evaluation trigger; `USE_MOCK_LLM=true`.
+- Steps:
+  1. Submit the intent in valley and wait for the valley execution/evaluation to complete.
+  2. Atomically switch the fixture to peak, record the switch marker, and invoke or observe the contracted re-evaluation trigger.
+  3. Capture all commands and evaluations after the marker and query final NE state.
+- Assertions:
+  - Step 1: the valley command set equals the precomputed sleep set, NE state is asleep, and a valley evaluation references the valley period.
+  - Step 2: exactly one peak re-evaluation is associated with the switch marker and its decision references the peak period.
+  - Step 3: the post-switch command set equals the precomputed wake set; no valley-period command has a timestamp after the marker; final NE state is active; distinct valley and peak evaluations reference the same intent and their respective periods.
+- finally/Cleanup: in `finally`, restore NE baseline, reset the fixture to its baseline period, and disable the test re-evaluation trigger. Assert cell state/metrics and tariff period equal baseline and no subsequent command is emitted for the test intent; cleanup failure fails the case.
+- Automation: `e2e/system-integration/intent-energy-saving/test_intent_energy_saving.py::test_peak_switch_executes_precomputed_adapted_actions` (planned after contract confirmation).
 
 **005 - Effect evaluation and feedback (P1)**
-- Steps: run the loop to execution; feed post-execution metrics via the NE simulator (including a designed experience-degradation signal, e.g., load rise on a sleeping cell's neighbor).
-- Assertions: evaluation report computes deltas from the fixture baseline (numeric consistency: delta = post - baseline on the fixture-provided metrics); degradation signal triggers the defined corrective feedback (corrective task event present, targeting the affected cell per contract §9 item 4); evaluation is linked to the originating intent/execution ID.
+- Status: **Draft**; blocked by the evaluation/baseline/degradation/corrective-feedback and NE metrics contracts.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: one executed-action fixture has fixed baseline and post-execution metrics, including a contracted degradation signal for neighbor cell N; expected numeric deltas and the corrective target are precomputed; NE baseline and event capture are established.
+- Steps:
+  1. Submit the intent and wait for its initial execution ID to reach the execution stage.
+  2. Publish the fixture post-execution metrics for that execution and wait for evaluation and feedback terminal events.
+  3. Retrieve the evaluation, corrective task, and related NE command/state records.
+- Assertions:
+  - Step 1: the execution ID and baseline metric snapshot are linked to the submitted intent before post-execution metrics are supplied.
+  - Step 2: exactly one evaluation references the intent/execution ID; every reported delta equals `post - baseline` for the fixture metrics; exactly one corrective feedback event carries the contracted degradation code and target N.
+  - Step 3: the corrective task references the originating execution and N, and any resulting command set equals the precomputed corrective expectation without touching guardrail-protected cells.
+- finally/Cleanup: in `finally`, cancel any unfinished corrective task, restore all NE cells/metrics and tariff state to baseline, and clear injected metrics. Assert all state equals baseline, injected metrics are absent, and no initial or corrective task remains active; cleanup failure fails the case.
+- Automation: `e2e/system-integration/intent-energy-saving/test_intent_energy_saving.py::test_degradation_metrics_produce_linked_corrective_feedback` (planned after contract confirmation).
 
 **006 - NE execution failure (P1)**
-- Preconditions: NE simulator configured to reject/fail the command for one target cell (test-controlled fault injection).
-- Steps: submit multi-cell intent; observe.
-- Assertions: loop reaches a defined degraded terminal state identifying the failed cell/action; successful cells' state is consistent with their executed commands (no partial/inconsistent NE state); failure recorded in evaluation/context; no infinite retry (bounded per contract); no forbidden action on guardrail-protected cells during failure handling.
-- Cleanup: clear fault injection; restore NE baseline and assert restoration.
+- Status: **Draft**; blocked by NE failure/retry/degraded-state and evaluation contracts.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: cells F and S start at captured baseline; the simulator is configured to reject the contracted command for F with a fixed error and accept it for S; the expected bounded retry count and degraded terminal code are defined by the contract; no guardrail-protected cell is targeted.
+- Steps:
+  1. Submit one multi-cell intent for F and S and capture commands, retries, and terminal events.
+  2. Wait with framework retry until the bounded failure handling terminates, then query both cells and the evaluation/context records.
+  3. Remove the F fault injection and submit a fresh probe intent for F and S.
+- Assertions:
+  - Step 1: commands for F and S carry the same originating execution ID and F returns the injected error; the command count for F equals the contracted bounded attempt count, with no additional retry after termination.
+  - Step 2: the terminal state is the contracted degraded code and identifies F, its action, and error; S state equals its successful command expectation while F remains at baseline; the evaluation/context records the same F failure; no other cell receives a command.
+  - Step 3: the fresh probe reaches `complete`, both cells reach the probe's precomputed states, and no injected error occurs, proving recovery independent of cleanup.
+- finally/Cleanup: in `finally`, clear fault injection even after assertion failure, terminate test executions, and restore all NE and tariff state. Assert the simulator accepts a health probe, F/S and all metrics equal baseline, and no test execution remains active; cleanup failure fails the case.
+- Automation: `e2e/system-integration/intent-energy-saving/test_intent_energy_saving.py::test_ne_command_failure_bounds_retries_and_recovers` (planned after contract confirmation).
 
 **007 - Explicit restoration and state consistency (P2)**
 - Steps: apply sleep actions; issue the explicit restoration path (wake commands per contract); query NE state and orchestration execution records.
 - Assertions: all cells return to baseline state; NE simulator state and orchestration-side records agree on final state per cell (no divergence); restoration commands appear in the command log with correct ordering; a second restoration is idempotent (no error, no state change).
+- finally/Cleanup: restore all fixtures and assert NE, orchestration records, and tariff state return to baseline.
 
 **008 - Multi-cell / concurrent intents (P2)**
 - Steps: submit one multi-cell intent and a second independent intent concurrently (or two overlapping multi-cell intents per fixture design).
 - Assertions: per-cell final states match each intent's precomputed expectation; command logs attributable to correct intent/execution IDs; no cross-contamination of decisions or evaluations; results identical to sequential runs.
+- finally/Cleanup: terminate both executions, restore all fixtures, and assert every cell and tariff setting equals baseline.
 
 ## 6. Assertion and Evidence Rules
 
@@ -200,19 +262,20 @@ P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epi
 | environment | `online` / `offline` as supported by the lab |
 | components | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` (NE simulator and tariff source are test fixtures, not distribution components) |
 | priority | `P0` / `P1` / `P2` per §5 matrix |
-| execution | `smoke` (001, 002), `full` (all) |
+| execution | Ready cases only: `smoke` (001, 002 after promotion), `full` (each Ready case); all current cases are `excluded until ready` |
 
-- Case table rows follow the fixed 16-column template; Module = `system-integration`; Component Deps as above; orchestration keys in Notes (`protocol_primitive` = Task-T; execution strategy notes the write-operation safety rules).
+- Case table rows follow the fixed 16-column template; Module = `system-integration`; Component Deps as above; orchestration keys in Notes (`protocol_primitive` = Task-T; execution strategy notes the write-operation safety rules). Draft rows must not be emitted as executable automation or given smoke/full code labels.
 
 ## 8. Execution, CI Mapping, and Gates
 
 | Trigger | S3 subset | Basis |
 | --- | --- | --- |
-| Daily build | smoke: 001, 002 | Framework §7.2 |
-| RC-0 / RC-1 | full: 001-008 | Framework §7.2, §4.3.2/§4.3.3 |
-| Pre-release | all S3 cases rerun on RC | Framework §7.2 |
+| Daily build | smoke: Ready cases designated smoke; currently none | Framework §7.2 |
+| RC-0 / RC-1 | full: all Ready cases; currently none | Framework §7.2, §4.3.2/§4.3.3 |
+| Pre-release | all Ready S3 cases rerun on RC; currently none | Framework §7.2 |
 
-- SIT exit gate: S3 pass rate = 100%, no skips (Framework §8.3);
+- Draft cases 001-008 are excluded from current smoke/full selections, automation implementation, and every exit-gate denominator. With zero Ready cases, S3 readiness is **not evaluable** and must not be reported as passed; the smoke/full and exit gates remain blocked pending contract confirmation and explicit per-case promotion.
+- Once any case becomes Ready, the SIT exit gate applies only to the Ready set: pass rate = 100%, no skips among selected Ready cases (Framework §8.3). Draft cases are neither passes, failures, nor skips and never increase the denominator;
 - **Cleanup verification is part of the gate**: any case leaving NE state modified counts as failed even if its functional assertions passed;
 - Defects: evidence-attached issues, P0 24h response / current-release fix, regression case after fix (Framework §9);
 - Archive: plan `docs/plans/<YY>-<season>/`, report `docs/reports/<YY>-<season>/`, JUnit XML per Framework §7.1/§11.3.

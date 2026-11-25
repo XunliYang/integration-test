@@ -118,61 +118,97 @@ Rules:
 
 ## 5. Case Matrix
 
-| Case ID | Name | Variant coverage | Priority | Execution |
-| --- | --- | --- | --- | --- |
-| `[SIT-cross-domain-complaint-001]` | Single-domain complaint E2E automated closure (wireless fault) | known issue, one domain, two tiers | P0 | smoke, full |
-| `[SIT-cross-domain-complaint-002]` | Cross-domain joint fault location E2E closure (wireless + core network) | known issue, multi-domain negotiation | P0 | smoke, full |
-| `[SIT-cross-domain-complaint-003]` | Novel problem handled by dynamic negotiation (no pre-coded workflow) | generalization variant | P1 | full |
-| `[SIT-cross-domain-complaint-004]` | Group-province tiering: cross-tier registration, discovery and invocation | two-tier topology | P1 | full |
-| `[SIT-cross-domain-complaint-005]` | Diagnosis write-back to process center with full context | closure / write-back | P1 | full |
-| `[SIT-cross-domain-complaint-006]` | Domain agent unreachable or negotiation rejected: defined degraded terminal state | fault injection | P1 | full |
-| `[SIT-cross-domain-complaint-007]` | Remaining domain combinations (SPN fault; wireless optimization) | domain coverage | P2 | full |
-| `[SIT-cross-domain-complaint-008]` | Concurrent cross-domain complaints isolation | concurrency | P2 | full |
+| Case ID | Name | Variant coverage | Priority | Status | Execution |
+| --- | --- | --- | --- | --- | --- |
+| `[SIT-cross-domain-complaint-001]` | Single-domain complaint E2E automated closure (wireless fault) | known issue, one domain, two tiers | P0 | Draft | excluded until ready |
+| `[SIT-cross-domain-complaint-002]` | Cross-domain joint fault location E2E closure (wireless + core network) | known issue, multi-domain negotiation | P0 | Draft | excluded until ready |
+| `[SIT-cross-domain-complaint-003]` | Novel problem handled by dynamic negotiation (no pre-coded workflow) | generalization variant | P1 | Draft | excluded until ready |
+| `[SIT-cross-domain-complaint-004]` | Group-province tiering: cross-tier registration, discovery and invocation | two-tier topology | P1 | Draft | excluded until ready |
+| `[SIT-cross-domain-complaint-005]` | Diagnosis write-back to process center with full context | closure / write-back | P1 | Draft | excluded until ready |
+| `[SIT-cross-domain-complaint-006]` | Domain agent unreachable or negotiation rejected: defined degraded terminal state | two independent parameterized fault-injection runs | P1 | Draft | excluded until ready |
+| `[SIT-cross-domain-complaint-007]` | Remaining domain combinations (SPN fault; wireless optimization) | domain coverage | P2 | Draft | excluded until ready |
+| `[SIT-cross-domain-complaint-008]` | Concurrent cross-domain complaints isolation | concurrency | P2 | Draft | excluded until ready |
 
-P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epic issue).
+P0/P1 rows use Requirement Link https://github.com/project-openan/integration-test/issues/34 and `Automatable=Yes` as the final automation requirement; a Draft row remains excluded from current execution even though it is required to be automated after promotion.
 
 ### 5.1 Case definitions (preconditions / steps / assertions / cleanup)
 
+All S2 cases are currently Draft. The definitions below preserve the expected design, but the referenced contracts are not confirmed; none may be implemented, executed, or counted in release-exit denominators until its blocking open items are resolved and its matrix status changes to Ready.
+
 **001 - Single-domain E2E closure (P0)**
-- Preconditions: two tiers deployed and healthy; four domain agents + recognition agent registered; wireless fault scenario payload loaded; EOMS stub running; `USE_MOCK_LLM=true`.
-- Steps: (1) submit a wireless-fault ticket via the intake stub; (2) observe recognition, discovery, negotiation and task execution via SDK events / SSE; (3) wait for terminal ticket state with framework wait/retry.
-- Assertions: ticket reaches terminal closed state; the wireless fault domain agent was discovered via the group-tier registry and participated (agent identifier match); negotiation exchange occurred between recognition agent and domain agent (Negotiation-T events present, client/server states aligned at termination); diagnosis conclusion structure present in the write-back; no other domain agent was invoked.
+- Status: Draft — blocked by Open Items 2, 3, and 4 (write-back/ticket-state contract, two-tier lab contract, and wireless scenario fixture).
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions (planned): the contracted two-tier topology is deployed and healthy; the recognition agent and four domain agents are registered in their contracted orgs; the confirmed wireless-fault payload is loaded; the EOMS stub implements the confirmed ticket state machine and write-back schema and starts empty; `USE_MOCK_LLM=true`.
+- Steps (planned): (1) submit one fixed wireless-fault ticket through the intake stub and record its ticket ID; (2) collect recognition, registry-discovery, Negotiation-T, Task-T, and ticket events associated with that ID; (3) query the terminal ticket, the write-back captured by EOMS, and all agent invocations for the ticket.
+- Assertions (planned, after contract confirmation): for step 1, exactly one ticket with the submitted ID enters the contracted intake state; for step 2, discovery returns the wireless-fault agent ID from the group-tier registry, negotiation events occur and terminate in the contracted converged state, and no other domain agent ID is invoked; for step 3, the ticket reaches the contracted closed state, exactly one schema-valid write-back contains the required conclusion fields, and all recorded states and agent IDs belong to the submitted ticket.
+- finally/Cleanup (planned): in a `finally` block, delete the test ticket, clear EOMS captures, reset domain scenario state, and remove test-owned registrations and event subscriptions. Recovery assertion: the ticket ID is absent, the stub is empty, no test-owned negotiation or task remains active, and both tiers return to their pre-case registration and health snapshots.
+- Automation: planned after contract confirmation — `e2e/system-integration/cross-domain-complaint/test_cross_domain_complaint.py::test_submit_wireless_fault_ticket_closes_with_single_domain_diagnosis`
 
 **002 - Cross-domain joint fault location (P0)**
-- Same structure with a joint wireless + core network ticket.
-- Assertions: both domain agents participate; joint localization produces a single consolidated conclusion (required fields present, contributing domains identified); negotiation converges to a terminal state within the bounded round/timeout contract (§9 item 1); ticket closed; per-domain evidence retained in the conclusion context.
+- Status: Draft — blocked by Open Items 1, 2, 3, and 4 (negotiation bounds/state names, write-back/ticket states, two-tier lab, and wireless/core fixtures).
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions (planned): the contracted two-tier topology is healthy; recognition, wireless-fault, and core-network-fault agents are registered and reachable with confirmed scenario payloads; the other domain agents are registered; negotiation round/timeout and terminal-state contracts are available; the EOMS stub starts empty; `USE_MOCK_LLM=true`.
+- Steps (planned): (1) submit one fixed joint wireless-plus-core ticket and record its ticket ID; (2) collect all negotiation rounds, task events, and participating agent IDs until negotiation reaches a terminal state or the confirmed bound is exceeded; (3) query the consolidated conclusion, EOMS write-back, and terminal ticket state for that ticket.
+- Assertions (planned, after contract confirmation): for step 1, one ticket enters the contracted intake state; for step 2, both the wireless-fault and core-network-fault agent IDs participate, negotiation converges within the confirmed maximum rounds and timeout, client/server terminal states match the contracted converged state, and neither SPN nor optimization is invoked; for step 3, one consolidated conclusion identifies exactly both contributing domains and retains each domain's evidence, one schema-valid write-back is received, and the ticket reaches the contracted closed state.
+- finally/Cleanup (planned): in a `finally` block, delete the ticket, clear EOMS and agent captures, and remove test-owned registrations and subscriptions. Recovery assertion: no ticket, write-back, active negotiation, or active task owned by the case remains, and both tiers match their pre-case health and registration snapshots.
+- Automation: planned after contract confirmation — `e2e/system-integration/cross-domain-complaint/test_cross_domain_complaint.py::test_submit_joint_ticket_closes_with_consolidated_conclusion`
 
 **003 - Novel problem, dynamic negotiation (P1)**
-- Preconditions: no pre-coded workflow matches the ticket category (verified: workflow retrieval returns no match or is bypassed by the recognition agent).
-- Steps: submit the novel-problem ticket; observe handling.
-- Assertions: handling proceeds without a recalled fixed workflow (execution context shows negotiation-driven composition, workflow ID absent or marked dynamic); Negotiation-T exchanges occur and reach a terminal state; ticket reaches a defined terminal state (closed with conclusion, or explicit "cannot locate" outcome - never silent hang or false closure). Assertions are on identifiers, event types, and states, not on generated wording.
+- Status: Draft — blocked by Open Items 1, 2, 3, and 4 (negotiation terminal/bound contract, ticket outcome/write-back contract, two-tier lab, and novel-problem domain fixtures).
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions (planned): the contracted two-tier topology is healthy; recognition and required domain agents are registered; a fixed novel-problem ticket and its required domain fixtures are confirmed; workflow retrieval is observable; no pre-coded workflow matches the novel category; EOMS starts empty; `USE_MOCK_LLM=true`.
+- Steps (planned): (1) query workflow retrieval for the novel category and record the no-match evidence; (2) submit the novel-problem ticket and collect its execution context, negotiation events, and task events through terminal handling; (3) query the terminal ticket and captured write-back.
+- Assertions (planned, after contract confirmation): for step 1, retrieval returns the contracted no-match result and no fixed workflow ID; for step 2, the execution context carries the contracted dynamic-composition marker, Negotiation-T events occur and terminate within the confirmed bound, and client/server terminal states align; for step 3, the ticket reaches exactly one contracted terminal outcome (closed with a schema-valid conclusion or explicit cannot-locate), with no silent hang and no closed outcome lacking the required conclusion. Assertions use identifiers, event types, and states, not generated wording.
+- finally/Cleanup (planned): in a `finally` block, delete the ticket and any dynamically created test-owned execution resources, clear EOMS and event captures, and restore agent fixtures. Recovery assertion: no case-owned ticket, workflow, negotiation, task, or write-back remains and both tiers match their pre-case health snapshots.
+- Automation: planned after contract confirmation — `e2e/system-integration/cross-domain-complaint/test_cross_domain_complaint.py::test_submit_novel_ticket_uses_dynamic_negotiation_without_fixed_workflow`
 
 **004 - Group-province tiering (P1)**
-- Steps: register province-owned agents into the group-tier registry; run a complaint; capture discovery and invocation paths.
-- Assertions: registration and discovery cross the tier boundary over the real network path (registry audit / agent card org fields match province org); owner isolation holds (province org cannot read/modify group-owned cards beyond its permissions - negative probe); cross-tier invocation succeeds and task events carry correct agent identities; with the group tier briefly unreachable, the provincial side reports a defined error rather than silently falling back to stale local state (fault-injection probe, restore afterwards).
+- Status: Draft — blocked by Open Item 3 (two-tier topology, real network path, and cross-tier mTLS trust).
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions (planned): separate group and province failure domains are deployed using the confirmed lab mode; cross-tier mTLS trust and network observability are configured; group-owned and province-owned card baselines and permissions are known; one province complaint fixture and its required agents are available; the group tier is initially reachable.
+- Steps (planned): (1) register a test-owned province agent into the group-tier registry and query it using authorized province credentials; (2) attempt to read and modify a group-owned card outside the province org's permissions; (3) submit the province complaint and capture registry and invocation network paths and task identities; (4) make the group tier unreachable, submit a fresh province complaint, and observe its terminal response; (5) restore group-tier connectivity and repeat health and discovery probes.
+- Assertions (planned, after contract confirmation): for step 1, the registered card carries the province org ID and authorized discovery traverses the contracted real cross-tier network path; for step 2, both unauthorized operations return the contracted authorization failure and the group-owned card remains byte-for-byte unchanged; for step 3, invocation succeeds over the cross-tier path and task events carry the expected province and group agent IDs; for step 4, the fresh complaint returns the contracted group-unreachable error within the confirmed timeout and does not use stale local discovery state; for step 5, health and authorized discovery succeed again.
+- finally/Cleanup (planned): in a `finally` block, restore group-tier connectivity, delete both tickets and the test-owned province card, and stop network/audit capture. Recovery assertion: no injected network fault remains, the group-owned card is unchanged, test-owned tickets and card IDs are absent, and registry discovery and both-tier health match their baselines.
+- Automation: planned after contract confirmation — `e2e/system-integration/cross-domain-complaint/test_cross_domain_complaint.py::test_submit_province_complaint_uses_secure_cross_tier_discovery_and_invocation`
 
 **005 - Write-back with full context (P1)**
-- Steps: run a cross-domain complaint to closure; capture the EOMS stub receipt.
-- Assertions: write-back happens exactly once per ticket; payload contains ticket ID, conclusion structure, contributing domains, and per-agent diagnostic history with timestamps; ticket state transition sequence at the stub is monotonic (intake -> processing -> closed), no duplicate or out-of-order transitions.
+- Status: Draft — blocked by Open Items 1, 2, 3, and 4 (successful joint handling prerequisites and the EOMS schema/state machine).
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions (planned): the contracted two-tier joint-complaint path is operational with confirmed wireless/core fixtures and negotiation bounds; the EOMS stub implements the confirmed write-back schema and ticket transition contract; its capture store is empty; a fixed joint ticket has a unique ticket ID; `USE_MOCK_LLM=true`.
+- Steps (planned): (1) submit the fixed joint ticket and record the EOMS intake transition; (2) collect processing events and wait for the contracted terminal ticket state; (3) retrieve every EOMS request and state transition for the ticket and compare them with per-agent execution history.
+- Assertions (planned, after contract confirmation): for step 1, one intake transition records the exact ticket ID; for step 2, the processing-to-terminal sequence follows the confirmed state machine and contains no duplicate or out-of-order transition; for step 3, exactly one terminal write-back validates against the confirmed schema and contains the ticket ID, conclusion, exactly the contributing domain IDs, and every per-agent diagnostic result and timestamp in the contracted order, with no missing or extra history entry.
+- finally/Cleanup (planned): in a `finally` block, delete the test ticket, clear EOMS requests/transitions, stop execution capture, and reset agent fixtures. Recovery assertion: the EOMS store contains no case ticket or write-back, no test-owned task or negotiation remains active, and the intake stub is ready to accept a fresh ticket.
+- Automation: planned after contract confirmation — `e2e/system-integration/cross-domain-complaint/test_cross_domain_complaint.py::test_close_joint_ticket_writes_back_full_diagnostic_context_once`
 
 **006 - Unreachable / rejecting domain agent (P1)**
-- Preconditions: test-controlled fault injection - core network agent endpoint unreachable, or configured to reject negotiation.
-- Steps: submit the joint ticket; observe.
-- Assertions: terminal state is a defined degraded/failed outcome identifying the failing domain; no false closure; remaining domain results are preserved in context; negotiation does not loop indefinitely (bounded by the round/timeout contract); after restoring the agent, a fresh ticket completes normally (recovery probe).
-- Cleanup: restore agent; verify registry health state recovers.
+- Status: Draft — blocked by Open Items 1, 2, 3, and 4. Case ID 006 has two independent parameterized runs; neither variant may be hidden behind or inferred from the other.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Automation: planned after contract confirmation — parameterized node `e2e/system-integration/cross-domain-complaint/test_cross_domain_complaint.py::test_joint_ticket_domain_fault_returns_defined_terminal_state` with independent `unreachable` and `negotiation_rejected` parameter sets.
+
+***006 parameter `unreachable` — independent setup, run, and recovery***
+- Preconditions / setup (planned): deploy the confirmed two-tier topology; load confirmed wireless/core fixtures; register healthy recognition, wireless-fault, and core-network-fault agents; start an empty EOMS stub; record the core agent's healthy registry snapshot; inject a network/endpoint fault that makes only the core-network agent unreachable; verify wireless remains reachable.
+- Steps (planned): (1) verify the core-agent health/route probe fails and the wireless-agent probe succeeds; (2) submit the fixed joint ticket, collect its negotiation/task events, and wait until the contracted degraded/failed terminal outcome or confirmed timeout; (3) query the ticket, write-back/error result, remaining-domain result, and all task states; (4) remove only the endpoint fault and probe core-agent health/discovery; (5) submit a fresh joint ticket with no fault and observe it through terminal handling.
+- Assertions (planned, after contract confirmation): for step 1, only core is unreachable; for step 2, handling terminates within the confirmed negotiation bound in the contracted unreachable/degraded outcome, never false closure, and the structured error identifies the core agent ID; for step 3, the wireless result is retained in context and no negotiation or task remains active beyond the bound; for step 4, core health and discovery match the pre-fault snapshot; for step 5, the fresh ticket reaches the contracted closed outcome with both domain contributions.
+- finally/Cleanup / recovery assertions (planned): in a `finally` block, remove the endpoint fault, delete both tickets, clear stubs, and stop captures. Assert the fault is absent, core is reachable and registered as before, both ticket IDs are absent, no case-owned negotiation/task remains active, and EOMS is empty.
+
+***006 parameter `negotiation_rejected` — independent setup, run, and recovery***
+- Preconditions / setup (planned): deploy the confirmed two-tier topology; load confirmed wireless/core fixtures; register recognition, wireless-fault, and core-network-fault agents with reachable endpoints; start an empty EOMS stub; record the core agent's healthy registry snapshot; configure only the core mock agent to return the contracted negotiation rejection while preserving endpoint reachability; verify wireless negotiation remains available.
+- Steps (planned): (1) verify core endpoint health succeeds and its negotiation probe returns the configured rejection; (2) submit the fixed joint ticket, collect negotiation/task events, and wait for the contracted rejected/degraded terminal outcome or confirmed timeout; (3) query the ticket, structured rejection, remaining-domain result, and all negotiation/task states; (4) remove only the rejection configuration and verify a core negotiation probe can converge; (5) submit a fresh joint ticket with rejection disabled and observe it through terminal handling.
+- Assertions (planned, after contract confirmation): for step 1, core remains reachable and returns the contracted rejection; for step 2, handling terminates within the confirmed negotiation bound in the contracted rejected/degraded outcome, never false closure, and identifies the core agent ID and rejection reason code; for step 3, the wireless result is retained, no retry exceeds the confirmed bound, and no negotiation/task remains active; for step 4, a fresh core negotiation converges and registry health remains unchanged; for step 5, the fresh ticket reaches the contracted closed outcome with both domain contributions.
+- finally/Cleanup / recovery assertions (planned): in a `finally` block, remove the rejection configuration, delete both tickets, clear stubs, and stop captures. Assert rejection is disabled, core remains reachable and registered as before, both ticket IDs are absent, no case-owned negotiation/task remains active, and EOMS is empty.
 
 **007 - Remaining domain combinations (P2)**
-- Steps: run SPN-fault and wireless-optimization tickets (separately).
-- Assertions: mirror 001 per domain; SPN participation here is complaint diagnosis only - no restoration/authorization actions occur (those belong to S5).
+- Status: Draft — blocked by Open Items 2, 3, and 4; execution is excluded until ready.
+- Expected design: run SPN-fault and wireless-optimization tickets separately after their payload, topology, and write-back contracts are confirmed. For each ticket, assert discovery and participation of exactly its required domain, a schema-valid diagnosis and contracted closure, and no other domain invocation. For SPN, additionally assert that only complaint diagnosis occurs and no restoration or authorization action is emitted.
 
 **008 - Concurrent complaints isolation (P2)**
-- Steps: submit one single-domain and one cross-domain ticket concurrently.
-- Assertions: independent terminal states; negotiation sessions, task IDs, and write-back payloads do not cross-contaminate (per-ticket identifier assertions); results identical to sequential runs.
+- Status: Draft — blocked by Open Items 1, 2, 3, and 4; execution is excluded until ready.
+- Expected design: after the relevant contracts are confirmed, submit one single-domain and one cross-domain ticket concurrently. Assert independent contracted terminal states; per-ticket negotiation session IDs, task IDs, event streams, and write-back payloads contain no identifiers or diagnostic evidence from the other ticket; cleanup restores empty stubs and the pre-case health baseline.
 
 ## 6. Assertion and Evidence Rules
 
 - Deterministic assertions only: ticket/ticket-state identifiers, agent/org identifiers, Negotiation-T and Task-T event types and state alignment, terminal states, required-field presence, write-back transition ordering. **Never assert on LLM-generated text**;
-- Negotiation-specific: assert that negotiation **occurred and converged** (event presence + aligned terminal states + bounded rounds). Round limits and timeout values come from the contract in §9 item 1; until confirmed, use the SDK default bound and record it in the case Notes;
+- Negotiation-specific: assert that negotiation **occurred and converged** (event presence + aligned terminal states + bounded rounds). Round limits, timeout values, and terminal state names must come from the contract in §9 item 1. Until confirmed, all affected cases remain Draft and excluded; do not substitute SDK defaults as an executable release-gate contract;
 - No `sleep`; framework wait/retry on terminal events (Framework §6.3);
 - No implicit case ordering; closely related checks may share one test function per Framework §6.3 with each case ID independently runnable;
 - On failure preserve: negotiation trace (message sequence and states), ticket lifecycle record, SDK/SSE events, relevant Pod logs from both tiers, K8s events into `EVIDENCE_DIR`;
@@ -190,28 +226,29 @@ P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epi
 | environment | `online` / `offline` as supported by the lab; two-tier mode noted in Notes |
 | components | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
 | priority | `P0` / `P1` / `P2` per §5 matrix |
-| execution | `smoke` (001, 002), `full` (all) |
+| execution | No current smoke/full cases; all Draft cases are `excluded until ready` |
 
-- Case table rows follow the fixed 16-column template; Module = `system-integration`; Component Deps as above; orchestration keys (`language_profile`, `protocol_primitive`, `execution_strategy`, `environment`) in Notes. `protocol_primitive` includes Negotiation-T for this scenario.
+- Case table rows follow the fixed 16-column template; Module = `system-integration`. Actual code component labels must come from each case row's CSV Component Deps rather than copying the scenario-level list wholesale; orchestration keys (`language_profile`, `protocol_primitive`, `execution_strategy`, `environment`) go in Notes. `protocol_primitive` includes Negotiation-T for cases that exercise negotiation.
 
 ## 8. Execution, CI Mapping, and Gates
 
-| Trigger | S2 subset | Basis |
+| Trigger | S2 Ready subset | Basis |
 | --- | --- | --- |
-| Daily build | smoke: 001, 002 | Framework §7.2 |
-| RC-0 / RC-1 | full: 001-008 | Framework §7.2, §4.3.2/§4.3.3 |
-| Pre-release | all S2 cases rerun on RC | Framework §7.2 |
+| Daily build | smoke: none currently; all cases are Draft and `excluded until ready` | Framework §7.2 |
+| RC-0 / RC-1 | full: none currently; all cases are Draft and `excluded until ready` | Framework §7.2, §4.3.2/§4.3.3 |
+| Pre-release | rerun every case that has become Ready on RC; currently none | Framework §7.2 |
 
-- SIT exit gate: S2 pass rate = 100%, no skips (Framework §8.3);
+- The current S2 smoke and full execution sets are empty because all eight cases have unresolved blockers. When a case's blockers are resolved and its matrix status changes to Ready, only that case becomes eligible for its designated smoke/full set and the release-exit denominator.
+- SIT exit gate: the pass rate over currently Ready S2 cases only must be 100%, with no skips among those cases (Framework §8.3). Draft cases are not executable tests, skips, passes, failures, or denominator entries. With zero Ready cases, no S2 pass-rate result or release readiness credit may be claimed;
 - Defects: evidence-attached issues, P0 24h response / current-release fix, regression case after fix (Framework §9);
 - Archive: plan `docs/plans/<YY>-<season>/`, report `docs/reports/<YY>-<season>/`, JUnit XML per Framework §7.1/§11.3.
 
-## 9. Open Items (must be resolved before case implementation)
+## 9. Open Items (case-specific blockers)
 
 | # | Item | Owner | Impact |
 | --- | --- | --- | --- |
-| 1 | Negotiation convergence contract: max rounds / timeout, terminal state naming for converged / failed / rejected negotiation | a2a-t-sdk + orchestration-center WG | Blocks bounded-convergence assertions in 002/003/006 |
-| 2 | EOMS process center write-back schema and ticket state machine (operator-specific in production; community stub contract) | Integration Testing WG + case contributor | Blocks 005 payload assertions |
+| 1 | Negotiation convergence contract: max rounds / timeout, terminal state naming for converged / failed / rejected negotiation | a2a-t-sdk + orchestration-center WG | Blocks bounded-convergence assertions in 001/002/003/005/006/008 |
+| 2 | EOMS process center write-back schema and ticket state machine (operator-specific in production; community stub contract) | Integration Testing WG + case contributor | Blocks ticket-outcome and payload assertions in 001/002/003/005/006/007/008 |
 | 3 | Two-tier lab mode: separate namespaces vs separate clusters; cross-tier network path and mTLS trust setup between tiers | Infra WG + Integration Testing WG | Blocks 004 and the environment section of all cases |
-| 4 | Domain scenario payloads for wireless / core / SPN / optimization on the shipped sample agents (test data authoring, not new agents) | Integration Testing WG | Blocks 001/002/007 fixture content |
+| 4 | Domain scenario payloads for wireless / core / SPN / optimization on the shipped sample agents (test data authoring, not new agents) | Integration Testing WG | Blocks fixture content in 001/002/003/005/006/007/008 |
 | 5 | Real-LLM variant inclusion in RC runs (deterministic assertions only) | Integration Testing WG | Optional variant; default CI stays `USE_MOCK_LLM=true` |

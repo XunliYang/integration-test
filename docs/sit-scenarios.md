@@ -3,13 +3,13 @@
 > *Version: v0.1 (Draft)*
 > *Maintained by: OpenAN Integration Testing Working Group*
 > *Language: English*
-> *Status: scenario baseline only - per-scenario SIT specifications are NOT defined in this document yet.*
+> *Status: scenario baseline with five v0.1 specification drafts; case-level readiness is tracked in each specification and the release case table.*
 
 ---
 
 ## 1. Purpose
 
-This document enumerates the distinct application scenarios for System Integration Testing (SIT), derived from the three published OpenAN best-practice cases. It serves as the agreed baseline for writing per-scenario SIT specifications in subsequent work.
+This document enumerates the distinct application scenarios for System Integration Testing (SIT), derived from the three published OpenAN best-practice cases. It is the scenario baseline for the five per-scenario specifications and the `26-winter` release test plan.
 
 Sources (https://openan.dev/best-practices.html):
 
@@ -101,5 +101,5 @@ These are not independent scenarios; they are variant axes to be covered inside 
 ## 5. Scope Boundary and Next Steps
 
 - This document fixes **what** the SIT scenarios are and **why** they are split this way. Per-scenario specifications live in `docs/sit-specs/<slug>.md`, one file per scenario, each covering its variants and the applicable cross-cutting dimensions, consistent with `docs/OpenAN Integration Testing Process and Framework.md` (naming §6.1, case rules §6.3, tags §6.4, env contract §6.6, gates §8).
-- Specification status is tracked in the inventory table above (§3).
-- Case IDs produced later will follow `[SIT-<slug>-<number>]` using the slugs in §3.
+- Specification status is tracked in the inventory table above (§3); individual cases additionally carry `Ready` or `Draft` status in their scenario matrix and CSV Notes.
+- Case IDs use `[SIT-<slug>-<number>]` with the slugs in §3. The 42 cases and their readiness states are archived in `docs/plans/26-winter/testcases-system-integration.csv`; the release plan is `docs/plans/26-winter/system-integration-test-plan.md`.

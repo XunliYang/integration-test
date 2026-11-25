@@ -125,58 +125,133 @@ Rules: no hardcoded IPs, credentials, or tokens.
 
 ## 5. Case Matrix
 
-| Case ID | Name | Variant coverage | Priority | Execution |
-| --- | --- | --- | --- | --- |
-| `[SIT-spn-line-diagnosis-001]` | E2E diagnosis via orchestration-driven invocation (approach B) | far-end optical module fault scenario | P0 | smoke, full |
-| `[SIT-spn-line-diagnosis-002]` | E2E diagnosis via direct A2A-T invocation (approach A) | same scenario, direct path | P0 | smoke, full |
-| `[SIT-spn-line-diagnosis-003]` | Integration-approach equivalence: A and B yield consistent conclusions | A vs B comparison | P1 | full |
-| `[SIT-spn-line-diagnosis-004]` | Root-cause variant coverage (type mismatch; attenuation misconfiguration; all-normal) | scenario matrix | P1 | full |
-| `[SIT-spn-line-diagnosis-005]` | Registration and discovery correctness for both agents | basic capabilities | P1 | full |
-| `[SIT-spn-line-diagnosis-006]` | SPN agent unreachable: defined failure, no fabricated diagnosis | fault injection | P1 | full |
-| `[SIT-spn-line-diagnosis-007]` | Expert confirmation receives full evidence; no repair action ever occurs | human-in-the-loop + scope guard | P2 | full |
-| `[SIT-spn-line-diagnosis-008]` | Far-end data missing: defined degraded conclusion, not a fabricated root cause | partial data | P2 | full |
+| Case ID | Name | Variant coverage | Priority | Status | Execution | Component Deps |
+| --- | --- | --- | --- | --- | --- | --- |
+| `[SIT-spn-line-diagnosis-001]` | E2E diagnosis via orchestration-driven invocation (approach B) | far-end optical module fault scenario | P0 | Draft | excluded until ready | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
+| `[SIT-spn-line-diagnosis-002]` | E2E diagnosis via direct A2A-T invocation (approach A) | same scenario, direct path | P0 | Draft | excluded until ready | `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
+| `[SIT-spn-line-diagnosis-003]` | Integration-approach equivalence: A and B yield consistent conclusions | A vs B comparison | P1 | Draft | excluded until ready | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
+| `[SIT-spn-line-diagnosis-004]` | Root-cause variant coverage (type mismatch; attenuation misconfiguration; all-normal) | scenario matrix, approach B | P1 | Draft | excluded until ready | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
+| `[SIT-spn-line-diagnosis-005]` | Registration and discovery correctness for both agents | basic capabilities, approach B | P1 | Draft | excluded until ready | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
+| `[SIT-spn-line-diagnosis-006]` | SPN agent unreachable: defined failure, no fabricated diagnosis | fault injection, approaches A and B | P1 | Draft | excluded until ready | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
+| `[SIT-spn-line-diagnosis-007]` | Expert confirmation receives full evidence; no repair action ever occurs | human-in-the-loop + scope guard, approach B | P2 | Draft | excluded until ready | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
+| `[SIT-spn-line-diagnosis-008]` | Far-end data missing: defined degraded conclusion, not a fabricated root cause | partial data, approach B | P2 | Draft | excluded until ready | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
 
-P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epic issue).
+All cases are Draft because §9 items 3 and 4 block the ticket and line-data fixtures required by every execution, while items 1, 2, and 5 add case-specific blockers. Draft definitions are design input only: they must not be implemented, scheduled, or counted in smoke/full execution or exit-gate denominators. A case may become Ready only after every open item affecting its preconditions, steps, assertions, and cleanup is resolved. P0/P1 rows use Requirement Link https://github.com/project-openan/integration-test/issues/34 and `Automatable=Yes` as the final automation requirement; that future automation requirement does not make a Draft row currently executable.
+
+The matrix records runtime path dependencies, not scenario-wide blanket labels. Direct approach A (002) excludes `orchestration-center`; orchestration-driven 001/003/004/005/006/007/008 include it because at least one execution uses approach B. The authoritative machine-readable code labels are the per-case **Component Deps** values in the generated CSV; §7's scenario list is only a union and must not be copied to every case.
 
 ### 5.1 Case definitions (preconditions / steps / assertions / cleanup)
 
 **001 - Approach B E2E diagnosis (P0)**
-- Preconditions: RC centers deployed; workbench + SPN agents registered; diagnosis workflow imported; line-data scenario (a) loaded (far-end optical module fault); intake stub ready; `USE_MOCK_LLM=true`.
-- Steps: (1) submit the dedicated-line complaint ticket; (2) observe workflow retrieval and driven invocation via SSE/SDK events; (3) wait for terminal diagnosis state with framework wait/retry.
-- Assertions: the diagnosis workflow was retrieved and executed (workflow identifier match); SPN agent participated (agent identifier in task events); terminal state `complete`; conclusion structure present with root cause classification = far-end optical module fault (precomputed expectation), far-end transmit power evidence abnormal and local transmit power evidence normal (fixture values); **no restoration/repair command issued** (scope guard).
-- Cleanup: delete execution records per fixture rules; reset scenario state.
+- Status: **Draft**; blocked by the conclusion, ticket, and line-data contracts.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Component Deps: `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent`.
+- Preconditions: RC centers are deployed; workbench and SPN agents are registered; the approach-B workflow is imported with a known ID; scenario (a) has fixed far-end abnormal transmit power and near-end normal values and expected classification `far_end_optical_module_fault`; intake and evidence capture are reset; `USE_MOCK_LLM=true`.
+- Steps:
+  1. Submit the scenario-(a) complaint through the intake stub and record its ticket ID.
+  2. Capture workflow retrieval, task events, and terminal state for that ticket using framework wait/retry.
+  3. Retrieve the structured conclusion, evidence, and complete command/event log.
+- Assertions:
+  - Step 1: exactly one ticket is accepted and all captured execution records reference its ID.
+  - Step 2: the executed workflow ID equals the imported ID; task peer identities include workbench and SPN agent; terminal state is `complete`.
+  - Step 3: classification equals `far_end_optical_module_fault`; far-end and near-end evidence fields exactly equal scenario-(a) fixture values; the log contains zero restoration, repair, or NE write commands.
+- finally/Cleanup: in `finally`, delete the test execution/workflow, reset scenario and stub state, and clear event capture. Assert the ticket/workflow no longer exists, the SPN scenario is baseline, and no execution or NE write remains active; cleanup failure fails the case.
+- Automation: `e2e/system-integration/spn-line-diagnosis/test_spn_line_diagnosis.py::test_orchestrated_optical_fault_returns_fixture_conclusion` (planned after contract confirmation).
 
 **002 - Approach A E2E diagnosis (P0)**
-- Preconditions: same scenario (a); workbench configured for direct invocation (mechanism per §9 item 2); Orchestration Center not in the invocation path.
-- Steps: submit the same ticket; observe direct A2A-T invocation.
-- Assertions: workbench invoked the SPN agent's A2A-T interface directly (task events show workbench -> SPN peer identities; no orchestration-driven execution record for this ticket); terminal state and conclusion match the same precomputed expectation as 001; scope guard holds.
+- Status: **Draft**; blocked by direct-approach selection, conclusion, ticket, and line-data contracts.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Component Deps: `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent`; `orchestration-center` is not in this invocation path.
+- Preconditions: workbench and SPN agents are registered; the workbench is explicitly configured for direct invocation; scenario (a) has fixed far-end abnormal transmit power and near-end normal values and expected classification `far_end_optical_module_fault`; orchestration execution capture is armed to prove non-participation; `USE_MOCK_LLM=true`.
+- Steps:
+  1. Submit a scenario-(a) complaint and record its ticket ID.
+  2. Capture direct task events and query orchestration execution records until the diagnosis terminates.
+  3. Retrieve the conclusion, evidence, and complete command/event log.
+- Assertions:
+  - Step 1: the ticket is accepted and the workbench selects approach A for its execution.
+  - Step 2: task events identify workbench as caller and SPN agent as peer; no orchestration-driven execution or workflow ID exists for the ticket; terminal state is `complete`.
+  - Step 3: classification equals `far_end_optical_module_fault`; far-end and near-end evidence exactly equal scenario-(a) fixture values; zero restoration, repair, or NE write commands occur.
+- finally/Cleanup: in `finally`, reset approach selection, scenario and stubs, and remove test execution records. Assert the ticket has no remaining execution, direct selection is reset, scenario data is baseline, and no orchestration record was created during cleanup; cleanup failure fails the case.
+- Automation: `e2e/system-integration/spn-line-diagnosis/test_spn_line_diagnosis.py::test_direct_optical_fault_returns_fixture_conclusion_without_orchestration` (planned after contract confirmation).
 
 **003 - Approach equivalence (P1)**
-- Steps: run the same ticket under A and B (two independent executions).
-- Assertions: root cause classification identical; evidence field values identical; participating agent set identical; both terminal states `complete`. Differences allowed only in execution-path metadata (workflow ID present in B, absent in A) - asserted explicitly, not ignored.
+- Status: **Draft**; blocked by approach selection, conclusion, ticket, and line-data contracts.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Component Deps: `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` because this case executes both paths.
+- Preconditions: both agents are registered; direct selection and the approach-B workflow are available; two independent tickets use identical scenario-(a) readings and expected classification `far_end_optical_module_fault`; execution captures are isolated by ticket ID.
+- Steps:
+  1. Submit ticket A with direct invocation and capture its terminal result and conclusion.
+  2. Submit ticket B through orchestration-driven invocation and capture its terminal result and conclusion.
+  3. Normalize only the contracted execution-path metadata and compare the two conclusions, evidence, participants, and logs.
+- Assertions:
+  - Step 1: A reaches `complete`, has no workflow ID/orchestration execution, and its conclusion/evidence equal scenario-(a) expectations.
+  - Step 2: B reaches `complete`, has the expected workflow ID and orchestration execution, and its conclusion/evidence equal scenario-(a) expectations.
+  - Step 3: A and B classification identifiers, evidence values, and workbench/SPN participant sets are identical; workflow metadata is absent for A and present for B; both logs contain zero restoration, repair, or NE write commands.
+- finally/Cleanup: in `finally`, delete both executions and the test workflow, reset direct selection, scenarios, and stubs. Assert neither ticket remains active, no A/B capture crosses the other ticket ID, and all fixtures equal baseline; cleanup failure fails the case.
+- Automation: `e2e/system-integration/spn-line-diagnosis/test_spn_line_diagnosis.py::test_direct_and_orchestrated_paths_return_identical_conclusions` (planned after contract confirmation).
 
 **004 - Root-cause variants (P1)**
-- Steps: run scenarios (b) mismatched module types, (c) incorrect attenuation, (d) all-normal, under approach B (approach A covered by 002/003; variant x approach full cross is P2-level coverage, not required here).
-- Assertions: each conclusion's classification equals the precomputed expectation; scenario (d) yields an explicit "no fault found" classification, never a fabricated root cause; evidence fields carry the corresponding fixture readings.
+- Status: **Draft**; blocked by classification/evidence schema, ticket, and sample-agent payload contracts.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Component Deps: `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent`.
+- Preconditions: approach B is configured; independent fixtures define (b) mismatched module types, (c) incorrect attenuation, and (d) all-normal readings, each with exact expected classification and evidence values; workflow, stubs, and event capture are reset for each variant.
+- Steps:
+  1. For each of (b), (c), and (d), load exactly one variant and submit a fresh ticket through approach B.
+  2. Wait for each ticket's terminal state and retrieve its conclusion and evidence by ticket ID.
+  3. Inspect each full event/command log before resetting and loading the next variant.
+- Assertions:
+  - Step 1: each execution uses the imported workflow and the ticket references only the currently loaded variant.
+  - Step 2: (b) returns the contracted module-type-mismatch classification, (c) returns the contracted attenuation-misconfiguration classification, and (d) returns the contracted no-fault classification; every evidence field exactly equals its variant fixture and no other variant's values appear.
+  - Step 3: all three executions reach `complete`; each log contains zero restoration, repair, or NE write commands and no cross-ticket evidence.
+- finally/Cleanup: after every variant and in outer `finally`, delete its execution and reset scenario/stub state; finally delete the workflow. Assert all three tickets are inactive, the all-normal baseline is restored, and no residual variant data or NE write remains; cleanup failure fails the case.
+- Automation: `e2e/system-integration/spn-line-diagnosis/test_spn_line_diagnosis.py::test_orchestrated_root_cause_variants_match_fixture_classifications` (planned after contract confirmation).
 
 **005 - Registration and discovery (P1)**
-- Steps: register both agents; query discovery as performed by the workbench; run one diagnosis.
-- Assertions: agent cards discoverable with correct org/name/capability fields matching registration; workbench resolves the SPN agent via registry (discovery event/audit); invocation carries the discovered identity; an unregistered SPN agent is not invocable (negative probe: discovery returns no match, workbench reports defined error).
+- Status: **Draft**; blocked by ticket/line-data fixtures and the executable discovery/error details needed by the negative probe.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Component Deps: `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent`.
+- Preconditions: registry is healthy and empty of test cards; workbench and SPN card fixtures have exact org/name/capability values; approach-B workflow and scenario (a) are ready; cleanup retains original card state for restoration.
+- Steps:
+  1. Register both agent cards and query discovery using the workbench's capability query.
+  2. Submit a scenario-(a) ticket through approach B and capture discovery and invocation identities.
+  3. Deregister only the SPN card, repeat discovery, and submit a fresh negative-probe ticket.
+  4. Restore the SPN registration and repeat discovery as a recovery probe.
+- Assertions:
+  - Step 1: both returned cards exactly match the registered org/name/capability fields and no unexpected SPN match exists.
+  - Step 2: discovery audit identifies the SPN card, the invocation carries that discovered identity, workflow execution reaches `complete`, and no NE write occurs.
+  - Step 3: discovery returns no SPN match; the negative ticket reaches the contracted discovery-error terminal state, produces no diagnosis conclusion, and issues no agent invocation or NE write.
+  - Step 4: the restored card is returned with its original fields and registry health is ready.
+- finally/Cleanup: in `finally`, restore both original card registrations, remove negative/positive executions and workflow, and reset scenario/stubs. Assert registry contents equal the captured baseline, both agents are healthy when present in baseline, and no test ticket remains active; cleanup failure fails the case.
+- Automation: `e2e/system-integration/spn-line-diagnosis/test_spn_line_diagnosis.py::test_registry_discovery_controls_invocation_and_recovers` (planned after contract confirmation).
 
 **006 - SPN agent unreachable (P1)**
-- Preconditions: SPN agent endpoint made unreachable (test-controlled fault injection).
-- Steps: submit ticket under both approaches (sequentially).
-- Assertions: terminal state is a defined failure identifying the unavailable agent; **no diagnosis conclusion is produced** (absence assertion - a failure must not carry a root cause); intake stub receives the defined error write-back; after restoring the agent, a fresh ticket diagnoses normally (recovery probe).
-- Cleanup: restore agent; verify registry health state recovers.
+- Status: **Draft**; blocked by ticket/line-data fixtures and the contracted failure/write-back behavior.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Component Deps: `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` because this case executes both paths.
+- Preconditions: both agents are registered and healthy; direct selection and approach-B workflow are available; scenario (a) and its expected optical-fault conclusion are loaded; intake/error capture is reset; a reversible endpoint fault is armed without changing registration.
+- Steps:
+  1. Make the SPN endpoint unreachable, submit a direct-path ticket, and wait for its terminal failure.
+  2. With the same fault active, submit an independent orchestration-driven ticket and wait for its terminal failure.
+  3. Inspect both conclusions/write-backs and command logs, then remove the endpoint fault and wait for registry/agent health.
+  4. Submit a fresh direct-path recovery ticket and retrieve its conclusion.
+- Assertions:
+  - Step 1: the direct execution reaches the contracted unavailable-agent failure identifying SPN; it has no workflow ID and no diagnosis conclusion.
+  - Step 2: the orchestration execution reaches the same contracted failure identifying SPN and expected workflow ID; it has no diagnosis conclusion.
+  - Step 3: each intake stub capture contains exactly the contracted error write-back for its own ticket and no root cause; both logs contain zero restoration, repair, or NE write commands; health becomes ready after fault removal.
+  - Step 4: the recovery ticket reaches `complete`, returns classification `far_end_optical_module_fault` with exact scenario-(a) evidence, and confirms normal post-fault diagnosis.
+- finally/Cleanup: in `finally`, remove endpoint fault, restore approach selection, delete test workflow/executions, and reset scenarios/stubs. Assert endpoint and registry health recover, all tickets are inactive, scenario data equals baseline, and no residual fault or NE write remains; cleanup failure fails the case.
+- Automation: `e2e/system-integration/spn-line-diagnosis/test_spn_line_diagnosis.py::test_unreachable_spn_agent_fails_without_diagnosis_and_recovers` (planned after contract confirmation).
 
 **007 - Expert confirmation + scope guard (P2)**
-- Steps: run a diagnosis to conclusion; capture the confirmation request at the expert stub.
+- Steps: run an approach-B diagnosis to conclusion; capture the confirmation request at the expert stub.
 - Assertions: confirmation request contains the conclusion and full supporting evidence (near/far-end readings, per-agent task results, timestamps); ticket state reflects "awaiting confirmation", not auto-closed; **across the entire run, zero restoration/repair/write commands toward any NE** (command/event log absence assertion - this is the S4/S5 boundary guard).
+- finally/Cleanup: reset confirmation/intake stubs and scenario state, delete execution/workflow, and assert no ticket remains awaiting confirmation or closed automatically.
 
 **008 - Far-end data missing (P2)**
 - Preconditions: scenario (e) - far-end readings unavailable.
-- Steps: submit ticket; observe.
+- Steps: submit an approach-B ticket; observe.
 - Assertions: conclusion is a defined degraded outcome (e.g., "insufficient far-end data" classification per contract §9 item 1), explicitly marking the missing data; no fabricated far-end evidence values; local-end evidence still reported; terminal state is defined (degraded-complete or failed per contract), never silent hang.
+- finally/Cleanup: restore complete line data, remove execution/workflow and stub captures, and assert scenario state and ticket lifecycle return to baseline with no NE write.
 
 ## 6. Assertion and Evidence Rules
 
@@ -197,22 +272,23 @@ P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epi
 | --- | --- |
 | feature | `system-integration` |
 | environment | `online` / `offline` as supported by the lab |
-| components | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent` |
+| components | Scenario union only: `orchestration-center`, `registry-center`, `a2a-t-sdk`, `workflow-exec-engine`, `mockagent`; use §5 per-case Component Deps for code labels |
 | priority | `P0` / `P1` / `P2` per §5 matrix |
-| execution | `smoke` (001, 002), `full` (all) |
+| execution | Ready cases only: `smoke` (001, 002 after promotion), `full` (each Ready case); all current cases are `excluded until ready` |
 
-- Case table rows follow the fixed 16-column template; Module = `system-integration`; Component Deps as above; orchestration keys in Notes (`protocol_primitive` = Task-T basic flows; integration approach A/B noted per case).
+- Case table rows follow the fixed 16-column template; Module = `system-integration`; Component Deps are copied from the same case's §5 matrix row, not from the scenario union (in particular, direct 002 has no `orchestration-center`); orchestration keys in Notes (`protocol_primitive` = Task-T basic flows; integration approach A/B noted per case). Draft rows must not be emitted as executable automation or given smoke/full code labels.
 - Fixture reuse: S5 reuses S4's line-data scenarios and agent fixtures; shared fixture code lives in the scenario package's `utils/`, not duplicated per scenario.
 
 ## 8. Execution, CI Mapping, and Gates
 
 | Trigger | S4 subset | Basis |
 | --- | --- | --- |
-| Daily build | smoke: 001, 002 | Framework §7.2 |
-| RC-0 / RC-1 | full: 001-008 | Framework §7.2, §4.3.2/§4.3.3 |
-| Pre-release | all S4 cases rerun on RC | Framework §7.2 |
+| Daily build | smoke: Ready cases designated smoke; currently none | Framework §7.2 |
+| RC-0 / RC-1 | full: all Ready cases; currently none | Framework §7.2, §4.3.2/§4.3.3 |
+| Pre-release | all Ready S4 cases rerun on RC; currently none | Framework §7.2 |
 
-- SIT exit gate: S4 pass rate = 100%, no skips (Framework §8.3);
+- Draft cases 001-008 are excluded from current smoke/full selections, automation implementation, and every exit-gate denominator. With zero Ready cases, S4 readiness is **not evaluable** and must not be reported as passed; the smoke/full and exit gates remain blocked pending contract confirmation and explicit per-case promotion.
+- Once any case becomes Ready, the SIT exit gate applies only to the Ready set: pass rate = 100%, no skips among selected Ready cases (Framework §8.3). Draft cases are neither passes, failures, nor skips and never increase the denominator;
 - Defects: evidence-attached issues, P0 24h response / current-release fix, regression case after fix (Framework §9);
 - Archive: plan `docs/plans/<YY>-<season>/`, report `docs/reports/<YY>-<season>/`, JUnit XML per Framework §7.1/§11.3.
 

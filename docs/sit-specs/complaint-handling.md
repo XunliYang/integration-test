@@ -64,7 +64,8 @@ diagnosis conclusion -> autonomous closure
 | Component | Role in S1 | Constraint |
 | --- | --- | --- |
 | `registry-center` (backend `agent_registry`, HTTPS :5000) | Agent card registration / discovery for all domain agents | mTLS client identity required (`REGISTRY_CLIENT_CERT/KEY/CA_CERT`) |
-| `orchestration-center` (backend `orchestrate` :5001, `host_agent`, `samples/`) | Workflow recall and execution; complaint handling agent host | Runtime dependency on registry-center (`AGENT_REGISTRY_URL` / shared `openan-net`); `workflow-exec-engine>=0.1.1,<0.2`, `a2a-t-sdk>=1.2.0,<2` |
+| `orchestration-center` (backend `orchestrate` :5001, `host_agent`, `samples/`) | Workflow recall and complaint handling agent host | Runtime dependency on registry-center (`AGENT_REGISTRY_URL` / shared `openan-net`) |
+| `workflow-exec-engine` | Workflow execution within the complaint handling agent | Version `>=0.1.1,<0.2`; used with `a2a-t-sdk>=1.2.0,<2` |
 | `a2a-t-sdk-python` | Agent-to-agent task collaboration | Version per orchestration-center constraint above |
 | Domain agents (Customer Care, Billing, CDN, Vendor FAN) | Sample mock agents shipped with the distribution: orchestration-center `samples/` (started via `start_agents_server.py`, registered into Registry Center) and the `openan-demo` mockagent scenario package | Endpoints via `MOCK_AGENTS_HOST` / `SAMPLE_AGENTS_HOST` |
 | NOC expert endpoint (simulated) | Receives escalation with diagnostic context | Test-side stub; contract to be confirmed (see §9) |
@@ -109,55 +110,86 @@ Rules:
 
 IDs continue from the existing baseline case `[SIT-complaint-handling-001]` in `docs/templates/testcases-template.csv` (branch A end-to-end, P0). Do not renumber it.
 
-| Case ID | Name | Variant coverage | Priority | Execution |
-| --- | --- | --- | --- | --- |
-| `[SIT-complaint-handling-001]` | Branch A (outage/billing) end-to-end closed loop | A, autonomous closure | P0 | smoke, full |
-| `[SIT-complaint-handling-002]` | Branch B (streaming/speed) end-to-end closed loop | B, autonomous closure | P0 | smoke, full |
-| `[SIT-complaint-handling-003]` | Intent-to-workflow recall routing correctness | A vs B vs unknown category | P1 | full |
-| `[SIT-complaint-handling-004]` | Agent retrieval matches recalled workflow | A and B card sets | P1 | full |
-| `[SIT-complaint-handling-005]` | Expert handoff carries full diagnostic context | A or B, unresolved edge case | P1 | full |
-| `[SIT-complaint-handling-006]` | Required domain agent unavailable: graceful degradation | A with Billing agent down | P1 | full |
-| `[SIT-complaint-handling-007]` | Unknown complaint category: defined fallback | neither A nor B | P2 | full |
-| `[SIT-complaint-handling-008]` | Concurrent complaints isolation | A + B in parallel | P2 | full |
+| Case ID | Name | Variant coverage | Priority | Status | Execution |
+| --- | --- | --- | --- | --- | --- |
+| `[SIT-complaint-handling-001]` | Branch A (outage/billing) end-to-end closed loop | A, autonomous closure | P0 | Ready | smoke, full |
+| `[SIT-complaint-handling-002]` | Branch B (streaming/speed) end-to-end closed loop | B, autonomous closure | P0 | Ready | smoke, full |
+| `[SIT-complaint-handling-003]` | Intent-to-workflow recall routing correctness | A vs B | P1 | Ready | full |
+| `[SIT-complaint-handling-004]` | Agent retrieval matches recalled workflow | A and B card sets | P1 | Ready | full |
+| `[SIT-complaint-handling-005]` | Expert handoff carries full diagnostic context | A or B, unresolved edge case | P1 | Draft | excluded until ready |
+| `[SIT-complaint-handling-006]` | Required domain agent unavailable: graceful degradation | A with Billing agent down | P1 | Ready | full |
+| `[SIT-complaint-handling-007]` | Unknown complaint category: defined fallback | neither A nor B | P2 | Draft | excluded until ready |
+| `[SIT-complaint-handling-008]` | Concurrent complaints isolation | A + B in parallel | P2 | Ready | full |
 
-P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epic issue) per the case-table template rules.
+P0/P1 rows use Requirement Link https://github.com/project-openan/integration-test/issues/34 and `Automatable=Yes` as the final automation requirement; a Draft row remains excluded from current execution even though it is required to be automated after promotion.
 
 ### 5.1 Case definitions (preconditions / steps / assertions / cleanup)
 
+Draft cases below record expected design only. Their contracts are not confirmed; they must not be implemented, executed, or counted in release-exit denominators until their blocking open items are resolved and their matrix status changes to Ready.
+
 **001 - Branch A end-to-end (P0)**
-- Preconditions: RC centers deployed and healthy; branch A workflow imported; Customer Care / Billing / Vendor 1 FAN agents registered and reachable; `USE_MOCK_LLM=true`.
-- Steps: (1) submit the "no internet access" complaint intent; (2) subscribe to the execution SSE event stream; (3) wait for terminal execution status via framework wait/retry (no `sleep`).
-- Assertions (all explicit): workflow recalled is the branch A definition (identifier match, not text match); execution reaches terminal status `complete`; SSE sequence contains stage events and A2A-T task events for exactly the three branch A agents; result payload contains a diagnosis conclusion structure (required fields present) and handling suggestions field; each invoked agent reports task success state.
-- Cleanup: delete created execution records / test-owned workflows per fixture rules; deregister nothing owned by the session baseline.
+- Status: Ready.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: RC centers are deployed and healthy; the branch A workflow with a known workflow ID is imported; Customer Care, Billing, and Vendor 1 FAN cards are registered and their endpoints are reachable; `USE_MOCK_LLM=true`; the execution store contains no test-owned branch A execution.
+- Steps: (1) submit the fixed "no internet access" complaint intent and record its execution ID; (2) subscribe to that execution's SSE stream and collect events through the terminal event; (3) query the terminal execution and each agent task by the recorded IDs.
+- Assertions: for step 1, the response returns one execution ID and the recalled workflow ID exactly equals the imported branch A ID; for step 2, the terminal status is `complete`, stage events precede their corresponding task-completion events, and task events identify exactly Customer Care, Billing, and Vendor 1 FAN with no other domain agent; for step 3, every identified task is successful and the result contains the required diagnosis-conclusion and handling-suggestions fields.
+- finally/Cleanup: in a `finally` block, close the SSE subscription and delete the test-owned execution and imported workflow; retain session-baseline agent cards. Recovery assertion: subsequent queries return not found for the deleted execution and workflow, all three baseline agents remain registered and reachable, and no test-owned task remains running.
+- Automation: `e2e/system-integration/complaint-handling/test_complaint_handling.py::test_submit_outage_complaint_completes_with_billing_diagnosis`
 
 **002 - Branch B end-to-end (P0)**
-- Same structure as 001 with branch B intent, workflow, and agent set (Customer Care / CDN / Vendor 2 FAN); assertions mirror 001 on the branch B identifiers.
+- Status: Ready.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: RC centers are deployed and healthy; the branch B workflow with a known workflow ID is imported; Customer Care, CDN, and Vendor 2 FAN cards are registered and their endpoints are reachable; `USE_MOCK_LLM=true`; the execution store contains no test-owned branch B execution.
+- Steps: (1) submit the fixed "YouTube/Netflix playback is slow" complaint intent and record its execution ID; (2) subscribe to that execution's SSE stream and collect events through the terminal event; (3) query the terminal execution and each agent task by the recorded IDs.
+- Assertions: for step 1, the response returns one execution ID and the recalled workflow ID exactly equals the imported branch B ID; for step 2, the terminal status is `complete`, stage events precede their corresponding task-completion events, and task events identify exactly Customer Care, CDN, and Vendor 2 FAN with no other domain agent; for step 3, every identified task is successful and the result contains the required diagnosis-conclusion and handling-suggestions fields.
+- finally/Cleanup: in a `finally` block, close the SSE subscription and delete the test-owned execution and imported workflow; retain session-baseline agent cards. Recovery assertion: subsequent queries return not found for the deleted execution and workflow, all three baseline agents remain registered and reachable, and no test-owned task remains running.
+- Automation: `e2e/system-integration/complaint-handling/test_complaint_handling.py::test_submit_streaming_complaint_completes_with_cdn_diagnosis`
 
 **003 - Recall routing correctness (P1)**
-- Steps: submit branch A intent, branch B intent, and an unknown-category intent in separate executions.
-- Assertions: A intent recalls the A workflow ID; B intent recalls the B workflow ID; unknown intent produces the defined fallback (see 007), never a silently wrong branch. Routing assertions compare workflow identifiers/status codes, not LLM-generated wording.
+- Status: Ready. The unknown-category scenario is covered independently by 007 and is not part of this case.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: RC centers are healthy; branch A and branch B workflows with distinct known IDs are imported; all agents required by both workflows are registered and reachable; `USE_MOCK_LLM=true`.
+- Steps: (1) submit the branch A intent in a new execution and record its recalled workflow ID and terminal status; (2) after that execution terminates, submit the branch B intent in a separate new execution and record its recalled workflow ID and terminal status; (3) query both execution records by their distinct execution IDs.
+- Assertions: for step 1, the A execution recalls exactly the branch A workflow ID and does not recall the branch B ID; for step 2, the B execution recalls exactly the branch B workflow ID and does not recall the branch A ID; for step 3, both executions reach `complete`, their execution IDs remain distinct, and each stored workflow ID equals the ID captured for its own submission. Compare identifiers and statuses, never generated wording.
+- finally/Cleanup: in a `finally` block, delete both test-owned executions and both imported workflows. Recovery assertion: queries for all deleted IDs return not found, no test-owned execution remains active, and the registered agent-card baseline is unchanged.
+- Automation: `e2e/system-integration/complaint-handling/test_complaint_handling.py::test_submit_known_intents_recalls_matching_workflow`
 
 **004 - Agent retrieval correctness (P1)**
-- Steps: execute both branches; capture the agent cards actually pulled from Registry Center during execution (via execution context/events or registry query audit).
-- Assertions: branch A pulls exactly {Customer Care, Billing, Vendor 1 FAN}; branch B exactly {Customer Care, CDN, Vendor 2 FAN}; card fields (org/name/capabilities) match the registered cards; no cross-branch agent leakage.
+- Status: Ready.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: RC centers are healthy; branch A and branch B workflows are imported with known IDs; five uniquely identifiable cards for Customer Care, Billing, CDN, Vendor 1 FAN, and Vendor 2 FAN are registered with known org, name, and capability fields; registry audit or execution-event capture is enabled; `USE_MOCK_LLM=true`.
+- Steps: (1) execute the branch A intent and capture the cards retrieved for its execution ID; (2) execute the branch B intent in a separate execution and capture the cards retrieved for its execution ID; (3) query the registered-card records and compare both captured retrieval sets with those records.
+- Assertions: for step 1, branch A retrieves exactly {Customer Care, Billing, Vendor 1 FAN}; for step 2, branch B retrieves exactly {Customer Care, CDN, Vendor 2 FAN}; for step 3, every retrieved card's org, name, and capabilities equal its registered record, each execution contains no card belonging only to the other branch, and no duplicate or unexpected agent retrieval appears.
+- finally/Cleanup: in a `finally` block, stop audit capture and delete both executions and imported workflows; remove only test-owned cards. Recovery assertion: deleted execution and workflow IDs return not found, audit capture is stopped, and the registry contains exactly its pre-case card set.
+- Automation: `e2e/system-integration/complaint-handling/test_complaint_handling.py::test_execute_branches_retrieves_only_required_agent_cards`
 
 **005 - Expert handoff (P1)**
-- Preconditions: NOC handoff stub running; scenario data forces an unresolved edge case (standard workflow cannot resolve).
-- Steps: submit the edge-case intent; wait for escalation.
-- Assertions: escalation reaches the stub exactly once; payload contains the full diagnostic history (per-agent task results and timestamps present and ordered); execution terminal state reflects "escalated", not "complete" or silent failure; no partial diagnosis is dropped (field-level completeness check).
+- Status: Draft — blocked by Open Item 1; the NOC endpoint, payload schema, and escalated terminal-state contract are unconfirmed. This expected design must not be implemented or counted in exit gates.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions (planned): RC centers and branch agents are healthy; the NOC handoff stub is running at the eventually contracted endpoint; scenario data forces an unresolved edge case; the expected payload schema and terminal-state name have been confirmed; `USE_MOCK_LLM=true`.
+- Steps (planned): (1) start capture on an empty NOC stub and submit the unresolved edge-case intent; (2) collect the execution event stream until the contracted terminal event; (3) retrieve the execution history and the NOC stub's received requests.
+- Assertions (planned, after contract confirmation): for step 1, exactly one escalation request is received for the execution; for step 2, the terminal state equals the contracted escalated state and is neither `complete` nor an unclassified failure; for step 3, the request validates against the confirmed schema and contains every per-agent task result and timestamp from execution history in the contracted order, with no missing diagnostic field.
+- finally/Cleanup (planned): in a `finally` block, close capture, reset the stub, and delete test-owned executions, workflows, and unresolved scenario data. Recovery assertion: the stub has no captured requests, deleted resource IDs return not found, no test-owned task remains active, and the agent baseline is healthy.
+- Automation: planned after contract confirmation — `e2e/system-integration/complaint-handling/test_complaint_handling.py::test_submit_unresolved_complaint_hands_off_full_diagnostic_context`
 
 **006 - Domain agent unavailable (P1)**
-- Preconditions: Billing agent endpoint made unreachable (test-controlled fault injection, e.g., stop the mock agent or block its route).
-- Steps: submit branch A intent; observe execution.
-- Assertions: execution terminates in a defined failed/degraded state with a clear error identifying the unavailable agent; no false `complete`; SSE/log evidence records the failure reason; remaining agents' state is consistent (no orphaned running tasks after teardown).
-- Cleanup: restore the Billing agent; verify registry health state recovers.
+- Status: Ready.
+- Requirement: https://github.com/project-openan/integration-test/issues/34
+- Preconditions: RC centers and branch A dependencies are healthy; the branch A workflow is imported; a test-controlled mechanism can make only the Billing endpoint unreachable and restore it; Customer Care and Vendor 1 FAN remain reachable; `USE_MOCK_LLM=true`; the pre-case registry health snapshot is recorded.
+- Steps: (1) make the Billing endpoint unreachable and verify that its health/route probe fails while the other two agents still pass; (2) submit the branch A intent, collect its events, and wait for a terminal execution state; (3) query execution tasks and logs for the recorded execution ID; (4) restore Billing and run its health/route probe again.
+- Assertions: for step 1, only Billing is unreachable; for step 2, execution reaches a defined failed or degraded terminal state, never `complete`, and emits a terminal event within the framework timeout; for step 3, the structured error identifies the Billing agent ID, Customer Care and Vendor 1 FAN task states are terminal, and no task remains `running`; for step 4, Billing becomes reachable and its registry health equals the pre-case snapshot.
+- finally/Cleanup: in a `finally` block, remove the route block or restart the mock agent even after assertion failure, close event capture, and delete the test-owned execution and workflow. Recovery assertion: Billing and the other baseline agents are reachable and healthy, no injected route block remains, deleted IDs return not found, and no orphaned task remains running.
+- Automation: `e2e/system-integration/complaint-handling/test_complaint_handling.py::test_submit_outage_with_billing_unreachable_reports_degraded_terminal_state`
 
 **007 - Unknown category fallback (P2)**
-- Assertions: system returns the defined fallback behavior (explicit "no matching workflow" response or escalation per product contract - contract to be confirmed, §9); never executes an arbitrary branch; response is deterministic in structure.
+- Status: Draft — blocked by Open Item 2; execution is excluded until ready.
+- Expected design: after the product contract is confirmed, submit an unknown-category intent and assert the contracted explicit no-match response or escalation, a deterministic response structure, and that neither branch A nor branch B executes. Until then, do not implement this case or count it in exit gates.
 
 **008 - Concurrent complaints (P2)**
-- Steps: submit one A and one B complaint concurrently.
-- Assertions: both reach their own correct terminal states; execution contexts, agent task IDs, and SSE streams do not cross-contaminate (assert per-execution identifiers); results identical to sequential runs 001/002.
+- Status: Ready.
+- Steps: submit one A and one B complaint concurrently; capture their separate execution IDs and SSE streams; wait for both terminal states.
+- Assertions: A recalls only workflow A and invokes exactly the A agent set; B recalls only workflow B and invokes exactly the B agent set; both complete; execution IDs, task IDs, SSE events, and result payloads contain only their own complaint identifiers; each result matches its own sequential expected structure.
+- finally/Cleanup: close both streams and delete both executions and test-owned workflows in a `finally` block. Recovery assertion: no test-owned execution or task remains active and the registry/workflow baseline is restored.
 
 ## 6. Assertion and Evidence Rules
 
@@ -177,25 +209,26 @@ P0/P1 cases must be `Automatable=Yes` with Requirement Link filled (scenario epi
 | --- | --- |
 | feature | `system-integration` |
 | environment | `online` (helm cluster) / `offline` (compose) as supported by the lab |
-| components | `orchestration-center`, `registry-center`, `a2a-t-sdk`, `mockagent` |
+| components | Candidate scenario labels: `orchestration-center`, `registry-center`, `workflow-exec-engine`, `a2a-t-sdk`, `mockagent`; actual labels are selected per case from the CSV Component Deps |
 | priority | `P0` / `P1` / `P2` per §5 matrix |
-| execution | `smoke` (001, 002), `full` (all) |
+| execution | `smoke` (Ready cases 001, 002), `full` (Ready cases 001-004, 006, 008); Draft cases are excluded until ready |
 
-- Case table rows follow the fixed 16-column template (`docs/templates/testcases-template-fields.md`), Module = `system-integration`, Component Deps as listed above; orchestration keys (`language_profile`, `protocol_primitive`, `execution_strategy`, `environment`) go in Notes.
+- Case table rows follow the fixed 16-column template (`docs/templates/testcases-template-fields.md`), Module = `system-integration`. The actual code component labels must be taken from each case row's CSV Component Deps; the scenario-level candidate list above must not be copied wholesale onto every case. Orchestration keys (`language_profile`, `protocol_primitive`, `execution_strategy`, `environment`) go in Notes.
 
 ## 8. Execution, CI Mapping, and Gates
 
-| Trigger | S1 subset | Basis |
+| Trigger | S1 Ready subset | Basis |
 | --- | --- | --- |
-| Daily build | smoke: 001, 002 | Framework §7.2 (daily = full FIT + smoke SIT) |
-| RC-0 / RC-1 | full: 001-008 | Framework §7.2, §4.3.2/§4.3.3 |
-| Pre-release | all S1 cases rerun on RC | Framework §7.2 |
+| Daily build | smoke: Ready 001, 002 | Framework §7.2 (daily = full FIT + smoke SIT) |
+| RC-0 / RC-1 | full: Ready 001-004, 006, 008 | Framework §7.2, §4.3.2/§4.3.3 |
+| Pre-release | all currently Ready S1 cases (001-004, 006, 008) rerun on RC | Framework §7.2 |
 
-- SIT exit gate: S1 pass rate = 100%, no skips allowed (Framework §8.3). A failing S1 case blocks release entry; `skip-temporarily` is not an acceptable end state for SIT at release time;
+- Draft cases 005 and 007 are `excluded until ready`: they are not in smoke/full execution sets or the current release-exit denominator. A Draft case may enter these sets only after its blockers are resolved, its definition is finalized, and its matrix status changes to Ready.
+- SIT exit gate: the pass rate over currently Ready S1 cases only = 100%, with no skips among those cases (Framework §8.3). A failing Ready S1 case blocks release entry; `skip-temporarily` is not an acceptable end state for SIT at release time. Draft cases neither pass nor fail the gate and must not be counted as skips;
 - Defects: failed cases open issues with evidence attached; P0 respond within 24h and fix in current release; regression case added after fix (Framework §9);
 - Results archived per release: plan in `docs/plans/<YY>-<season>/`, report in `docs/reports/<YY>-<season>/`, JUnit XML + report per Framework §7.1.
 
-## 9. Open Items (must be resolved before case implementation)
+## 9. Open Items (case-specific blockers)
 
 | # | Item | Owner | Impact |
 | --- | --- | --- | --- |
