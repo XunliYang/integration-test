@@ -56,9 +56,33 @@ def pytest_configure(config):
         config.addinivalue_line("markers", f"{name}: openan-installation test package label")
 
 
+# ---- progress + detailed log into test-run.log -------------------------
+
+_session_start = None
+_collected_items = []
+_total_items = 0
+
+
+def pytest_sessionstart(session):
+    global _session_start
+    _session_start = time.time()
+    log.info("=" * 60)
+    log.info("TEST SESSION START")
+    _collected_items.clear()
+
+
+def pytest_collection_finish(session):
+    global _total_items
+    _total_items = len(session.items)
+    _collected_items.extend(session.items)
+    log.info("collected %d items", _total_items)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    log.info("START %s", item.nodeid)
+    idx = _collected_items.index(item) + 1 if item in _collected_items else 0
+    pct = (idx / _total_items * 100) if _total_items else 0
+    log.info("[%3d%%] START %s", pct, item.nodeid)
 
 
 @pytest.hookimpl(trylast=True)
@@ -72,7 +96,14 @@ def pytest_runtest_logreport(report):
         outcome = "PASSED" if report.passed else "FAILED" if report.failed else "SKIPPED"
         log.info("%s %s (%.1fs)", outcome, report.nodeid, report.duration)
     elif report.when == "setup" and report.skipped:
-        log.info("SKIPPED %s: %s", report.nodeid, report.longreprtext[:100] if hasattr(report, 'longreprtext') else '')
+        reason = report.longreprtext.splitlines()[-1] if hasattr(report, 'longreprtext') else ''
+        log.info("SKIPPED %s: %s", report.nodeid, reason[:120])
+
+
+def pytest_sessionfinish(session):
+    elapsed = time.time() - _session_start if _session_start else 0
+    passed = len(session.testscollected)
+    log.info("TEST SESSION END  elapsed=%.1fs  collected=%d", elapsed, passed)
 
 
 @pytest.fixture(scope="session", autouse=True)

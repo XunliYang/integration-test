@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from pathlib import Path
 
 from utils.env import InstallConfig
@@ -90,6 +91,7 @@ def install_online_helm(
     if generated.exists():
         generated.unlink()
     log.info("install_online_helm: components=%s evidence=%s", components_answer or "all", evidence_stem)
+    t0 = time.time()
     result = run_interactive(
         str(online_install_dir(cfg) / "install.sh"),
         cwd=online_install_dir(cfg),
@@ -97,14 +99,16 @@ def install_online_helm(
         timeout=3600,
         evidence_stem=evidence_stem,
     )
-    log.info("install_online_helm exit=%d output_tail=%s", result.exit_code, result.output[-200:])
+    log.info("install_online_helm exit=%d elapsed=%.1fs output_tail=%s",
+             result.exit_code, time.time() - t0, result.output[-200:])
     return result
 
 
 def uninstall_online_helm(cfg: InstallConfig) -> CommandResult:
     log.info("uninstall_online_helm")
+    t0 = time.time()
     result = run("./uninstall.sh", cwd=online_install_dir(cfg), timeout=1800)
-    log.info("uninstall_online_helm exit=%d", result.exit_code)
+    log.info("uninstall_online_helm exit=%d elapsed=%.1fs", result.exit_code, time.time() - t0)
     return result
 
 
