@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
+
+from utils.shell import curl_request
+
+JSON_HEADERS = ["Content-Type: application/json"]
 
 
 def make_sample_agent_card(name: str | None = None) -> dict:
@@ -27,3 +32,24 @@ def make_sample_agent_card(name: str | None = None) -> dict:
 def agent_path(card: dict) -> str:
     org = card.get("org") or card["provider"]["organization"]
     return f"agent-cards/{org}/{card['name']}"
+
+
+def card_url(base: str, card: dict) -> str:
+    return f"{base.rstrip('/')}/rest/v1/registry-center/{agent_path(card)}"
+
+
+def register_card(base: str, card: dict, headers: list | None = None) -> tuple[str, str]:
+    return curl_request(
+        "POST",
+        f"{base.rstrip('/')}/rest/v1/registry-center/agent-cards",
+        data=json.dumps({"agentCards": [card]}),
+        headers=JSON_HEADERS + list(headers or []),
+    )
+
+
+def fetch_card(base: str, card: dict, headers: list | None = None) -> tuple[str, str]:
+    return curl_request("GET", card_url(base, card), headers=headers)
+
+
+def delete_card(base: str, card: dict, headers: list | None = None) -> tuple[str, str]:
+    return curl_request("DELETE", card_url(base, card), headers=headers)

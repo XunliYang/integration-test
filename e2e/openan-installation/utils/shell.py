@@ -100,6 +100,7 @@ def run_interactive(
     timeout: int = DEFAULT_TIMEOUT,
     answers: list | None = None,
     evidence_stem: str | None = None,
+    env: dict | None = None,
 ) -> CommandResult:
     import pexpect
 
@@ -118,6 +119,7 @@ def run_interactive(
         encoding="utf-8",
         codec_errors="replace",
         echo=False,
+        env=env,
     )
     patterns = [pexpect.TIMEOUT, pexpect.EOF]
     for pattern, _ in answers:
@@ -173,8 +175,38 @@ def http_status(url: str, timeout: int = 30) -> str:
 
 
 def port_listening(port: int) -> bool:
-    result = run(["ss", "-ltn"])
+    result = run(["ss", "-ltnp"])
     return re.search(rf":{port}\b", result.stdout) is not None
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text: str) -> str:
+    return _ANSI.sub("", text)
+
+
+def config_value(path, key: str) -> str | None:
+    found = None
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            name, _, value = line.partition("=")
+            if name.strip() == key:
+                found = value.strip()
+    return found
+
+
+def listening_pids(port: int) -> set[str]:
+    pids: set[str] = set()
+    for line in run(["ss", "-ltnp"]).stdout.splitlines():
+        if re.search(rf":{port}\b", line):
+            pids.update(re.findall(r"pid=(\d+)", line))
+    return pids
+
+
+def process_cmdline(pid: str) -> str:
+    return run(["ps", "-p", pid, "-o", "cmd="], timeout=60).stdout.strip()
 
 
 def file_sha256(path) -> str:

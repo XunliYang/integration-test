@@ -9,6 +9,11 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 
+# Test modules live in per-installation-line subdirectories; put the package
+# root on sys.path so `from utils...` works regardless of the import mode.
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+
 import utils.env as _utils_env
 
 if Path(_utils_env.__file__).resolve().parent != HERE / "utils":
@@ -36,6 +41,45 @@ CASE_IDS = (
     "DFX-openan-installation-serviceability-003",
     "DFX-openan-installation-reliability-001",
     "DFX-openan-installation-security-002",
+    "FIT-openan-installation-binary-regurl-001",
+    "FIT-openan-installation-binary-filestore-001",
+    "FIT-openan-installation-binary-offline-001",
+    "FIT-openan-installation-local-build-001",
+    "DFX-openan-installation-testability-002",
+    "DFX-openan-installation-reliability-003",
+    "DFX-openan-installation-security-001",
+    "FIT-openan-installation-helm-values-001",
+    "FIT-openan-installation-db-type-001",
+    "FIT-openan-installation-db-type-002",
+    "FIT-openan-installation-db-type-003",
+    "DFX-openan-installation-diagnosability-002",
+    "DFX-openan-installation-serviceability-007",
+    "DFX-openan-installation-reliability-002",
+    "DFX-openan-installation-reliability-004",
+    "DFX-openan-installation-reliability-005",
+    "FIT-openan-installation-offline-k8s-002",
+    "DFX-openan-installation-diagnosability-001",
+    "DFX-openan-installation-serviceability-002",
+    "DFX-openan-installation-serviceability-005",
+    "DFX-openan-installation-serviceability-006",
+    "DFX-openan-installation-serviceability-008",
+    "DFX-openan-installation-security-003",
+    "DFX-openan-installation-security-006",
+    "FIT-openan-installation-binary-regurl-002",
+    "FIT-openan-installation-llm-config-002",
+    "FIT-openan-installation-compose-db-001",
+    "FIT-openan-installation-binary-sample-001",
+    "FIT-openan-installation-binary-version-001",
+    "FIT-openan-installation-frontend-select-001",
+    "FIT-openan-installation-local-build-002",
+    "DFX-openan-installation-serviceability-004",
+    "DFX-openan-installation-performance-001",
+    "DFX-openan-installation-security-004",
+    "DFX-openan-installation-security-005",
+    "DFX-openan-installation-compatibility-001",
+    "DFX-openan-installation-compatibility-002",
+    "DFX-openan-installation-compatibility-003",
+    "FIT-openan-installation-binary-pack-001",
 )
 
 MARKER_NAMES = [
@@ -178,6 +222,24 @@ def require_profile(install_env):
     def _require(*profiles):
         if install_env.machine_profile not in profiles:
             pytest.skip(f"host profile {install_env.machine_profile} does not match required {list(profiles)}")
+
+    return _require
+
+
+@pytest.fixture
+def require_repo(install_env):
+    def _require() -> None:
+        if install_env.repo_path is None:
+            pytest.skip("OPENAN_INSTALL_REPO_PATH is not set")
+
+    return _require
+
+
+@pytest.fixture
+def require_opt_in():
+    def _require(enabled: bool, reason: str) -> None:
+        if not enabled:
+            pytest.skip(reason)
 
     return _require
 
