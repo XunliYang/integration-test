@@ -7,13 +7,40 @@ from pathlib import Path
 
 import pytest
 
-from utils.env import PROFILES, install_config, load_env
+HERE = Path(__file__).resolve().parent
 
-LOG_DIR = Path(__file__).resolve().parents[1] / "evidence" / "openan-installation"
+import utils.env as _utils_env
+
+if Path(_utils_env.__file__).resolve().parent != HERE / "utils":
+    raise ImportError(
+        "another feature package's `utils` is already imported; "
+        "run one feature directory per pytest invocation"
+    )
+
+from utils.env import InstallConfigError, install_config, load_env
+from utils.shell import capture_scene, register_secret, save_evidence
+
+LOG_DIR = HERE.parent / "evidence" / "openan-installation"
 LOG_FILE = LOG_DIR / "test-run.log"
+
+CASE_IDS = (
+    "FIT-openan-installation-binary-install-001",
+    "FIT-openan-installation-binary-components-001",
+    "FIT-openan-installation-llm-config-001",
+    "FIT-openan-installation-helm-online-001",
+    "FIT-openan-installation-helm-components-001",
+    "FIT-openan-installation-offline-k8s-001",
+    "FIT-openan-installation-offline-compose-001",
+    "DFX-openan-installation-testability-001",
+    "DFX-openan-installation-serviceability-001",
+    "DFX-openan-installation-serviceability-003",
+    "DFX-openan-installation-reliability-001",
+    "DFX-openan-installation-security-002",
+)
 
 MARKER_NAMES = [
     "openan-installation",
+    "26-winter",
     "online",
     "offline",
     "with-workload-cluster",
@@ -28,7 +55,10 @@ MARKER_NAMES = [
     "full",
     "slow",
     "skip-temporarily",
+    *CASE_IDS,
 ]
+
+REPO_PROFILES = ("online-vm", "cluster-ops")
 
 
 def _setup_logging():
@@ -61,6 +91,8 @@ def pytest_configure(config):
 _session_start = None
 _collected_items = []
 _total_items = 0
+_outcomes = {"passed": 0, "failed": 0, "errored": 0, "skipped": 0}
+_dirty_cleanups = []
 
 
 def pytest_sessionstart(session):
@@ -90,25 +122,53 @@ def pytest_runtest_teardown(item):
     log.info("END   %s", item.nodeid)
 
 
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, f"rep_{report.when}", report)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_logreport(report):
     if report.when == "call":
-        outcome = "PASSED" if report.passed else "FAILED" if report.failed else "SKIPPED"
-        log.info("%s %s (%.1fs)", outcome, report.nodeid, report.duration)
+        outcome = "passed" if report.passed else "failed" if report.failed else "skipped"
+        log.info("%s %s (%.1fs)", outcome.upper(), report.nodeid, report.duration)
     elif report.when == "setup" and report.skipped:
+        outcome = "skipped"
         reason = report.longreprtext.splitlines()[-1] if hasattr(report, 'longreprtext') else ''
         log.info("SKIPPED %s: %s", report.nodeid, reason[:120])
+    elif report.when == "setup" and report.failed:
+        outcome = "errored"
+        log.info("ERROR %s at setup", report.nodeid)
+    elif report.when == "teardown" and report.failed:
+        log.error("ERROR %s at teardown", report.nodeid)
+        return
+    else:
+        return
+    _outcomes[outcome] += 1
 
 
 def pytest_sessionfinish(session):
     elapsed = time.time() - _session_start if _session_start else 0
-    log.info("TEST SESSION END  elapsed=%.1fs  collected=%d", elapsed, _total_items)
+    log.info(
+        "TEST SESSION END  elapsed=%.1fs  collected=%d  passed=%d failed=%d errored=%d skipped=%d",
+        elapsed, _total_items,
+        _outcomes["passed"], _outcomes["failed"], _outcomes["errored"], _outcomes["skipped"],
+    )
+    if _dirty_cleanups:
+        log.error("HOST LEFT DIRTY BY FAILED CLEANUP: %s", "; ".join(_dirty_cleanups))
 
 
 @pytest.fixture(scope="session", autouse=True)
 def install_env():
     load_env()
     cfg = install_config()
+    if cfg.machine_profile in REPO_PROFILES and cfg.repo_path is None:
+        raise InstallConfigError(
+            "OPENAN_INSTALL_REPO_PATH is not set (required by online-vm and cluster-ops cases)"
+        )
+    register_secret(cfg.llm_api_key, cfg.admin_password, cfg.db_password)
     log.info("profile=%s repo=%s", cfg.machine_profile, cfg.repo_path)
     return cfg
 
@@ -120,3 +180,44 @@ def require_profile(install_env):
             pytest.skip(f"host profile {install_env.machine_profile} does not match required {list(profiles)}")
 
     return _require
+
+
+class CleanupPlan:
+    def __init__(self) -> None:
+        self._steps = []
+
+    def add(self, label, step, *args, **kwargs) -> None:
+        self._steps.append((label, lambda: step(*args, **kwargs)))
+
+    def run(self, stem: str) -> list[str]:
+        dirty = []
+        for index, (label, step) in enumerate(reversed(self._steps), 1):
+            started = time.time()
+            try:
+                result = step()
+                exit_code = getattr(result, "exit_code", 0)
+                output = getattr(result, "output", "")
+            except Exception as exc:
+                exit_code, output = -1, f"{type(exc).__name__}: {exc}"
+            save_evidence(f"{stem}-cleanup-{index}", f"[{label}] exit={exit_code}\n{output}")
+            log.info("CLEANUP %s exit=%s elapsed=%.1fs", label, exit_code, time.time() - started)
+            if exit_code != 0:
+                dirty.append(label)
+        return dirty
+
+
+@pytest.fixture
+def cleanup(request):
+    """Uninstall steps (LIFO) run only when the case fails; a passing case has asserted its own uninstall."""
+    plan = CleanupPlan()
+    yield plan
+    failed = any(
+        report is not None and report.failed
+        for report in (getattr(request.node, "rep_setup", None), getattr(request.node, "rep_call", None))
+    )
+    if not failed:
+        return
+    stem = request.node.name
+    for path in capture_scene(stem):
+        log.info("SCENE %s", path)
+    _dirty_cleanups.extend(f"{stem}: {label}" for label in plan.run(stem))

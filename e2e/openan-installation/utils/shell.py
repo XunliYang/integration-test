@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -9,6 +10,40 @@ from pathlib import Path
 
 DEFAULT_TIMEOUT = 1800
 EVIDENCE_DIR = Path(os.getenv("EVIDENCE_DIR", "evidence")).resolve() / "openan-installation"
+
+_SECRET_VALUES: set[str] = set()
+_BEARER = re.compile(r"\b(Bearer)\s+[A-Za-z0-9\-._~+/=]{8,}")
+_NAMED_SECRET = re.compile(
+    r"((?:access_token|refresh_token|api[_-]?key|token_hash|password|passwd)\s*[\"']?\s*[:=]\s*[\"']?)"
+    r"([^\s\"',;&}]{4,})",
+    re.IGNORECASE,
+)
+
+SCENE_COMMANDS = (
+    ("ports", ["ss", "-ltnp"]),
+    ("pods", ["kubectl", "-n", "openan", "get", "pods", "-o", "wide"]),
+    ("pvc", ["kubectl", "-n", "openan", "get", "pvc"]),
+    ("events", ["kubectl", "-n", "openan", "get", "events", "--sort-by=.lastTimestamp"]),
+    ("helm", ["helm", "ls", "-n", "openan", "--all"]),
+    ("logs-registry-center", ["kubectl", "-n", "openan", "logs", "--tail=200", "deploy/registry-center"]),
+    ("logs-orchestration-center", ["kubectl", "-n", "openan", "logs", "--tail=200", "deploy/orchestration-center"]),
+    ("logs-openan-frontend", ["kubectl", "-n", "openan", "logs", "--tail=200", "deploy/openan-frontend"]),
+    ("docker", ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.Status}}"]),
+)
+
+
+def register_secret(*values: str) -> None:
+    """Declare plaintext values that must never reach evidence files or reports."""
+    _SECRET_VALUES.update(value for value in values if value)
+
+
+def redact(text: str) -> str:
+    """Mask registered secrets and credential-looking fields in command output."""
+    for value in sorted(_SECRET_VALUES, key=len, reverse=True):
+        if len(value) >= 4:
+            text = text.replace(value, "***")
+    text = _BEARER.sub(r"\1 ***", text)
+    return _NAMED_SECRET.sub(r"\1***", text)
 
 
 @dataclass(frozen=True)
@@ -19,10 +54,10 @@ class CommandResult:
 
     @property
     def output(self) -> str:
-        return (self.stdout or "") + (self.stderr or "")
+        return redact((self.stdout or "") + (self.stderr or ""))
 
 
-def run(cmd, cwd=None, timeout: int = DEFAULT_TIMEOUT, stdin: str | None = None) -> CommandResult:
+def run(cmd, cwd=None, timeout: int = DEFAULT_TIMEOUT, stdin: str | None = None, env: dict | None = None) -> CommandResult:
     proc = subprocess.run(
         cmd,
         shell=not isinstance(cmd, list),
@@ -33,6 +68,7 @@ def run(cmd, cwd=None, timeout: int = DEFAULT_TIMEOUT, stdin: str | None = None)
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
+        env=env,
     )
     return CommandResult(proc.returncode, proc.stdout or "", proc.stderr or "")
 
@@ -40,8 +76,22 @@ def run(cmd, cwd=None, timeout: int = DEFAULT_TIMEOUT, stdin: str | None = None)
 def save_evidence(name: str, content: str) -> Path:
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     target = EVIDENCE_DIR / f"{name}.log"
-    target.write_text(content, encoding="utf-8", errors="replace")
+    target.write_text(redact(content), encoding="utf-8", errors="replace")
     return target
+
+
+def capture_scene(stem: str) -> list[Path]:
+    """Save host/cluster state for triage; unavailable tools are skipped."""
+    saved = []
+    for name, command in SCENE_COMMANDS:
+        if shutil.which(command[0]) is None:
+            continue
+        try:
+            result = run(command, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            result = CommandResult(-1, "", f"{type(exc).__name__}: {exc}")
+        saved.append(save_evidence(f"{stem}-scene-{name}", result.output))
+    return saved
 
 
 def run_interactive(
@@ -57,15 +107,17 @@ def run_interactive(
     # pexpect resolves which(cmd) against the parent cwd, before cwd= is
     # applied to the child; resolve relative script paths ourselves. Skip
     # commands that start with an interpreter (e.g. "bash script.sh").
-    if (cwd and isinstance(cmd, str) and not os.path.isabs(cmd)
-            and os.path.dirname(cmd) and " " not in cmd):
-        cmd = str((Path(cwd) / cmd).resolve())
+    if cwd and isinstance(cmd, str) and not os.path.isabs(cmd):
+        program, _, arguments = cmd.partition(" ")
+        if os.path.dirname(program) and not any(char in program for char in "\"'\\"):
+            cmd = str((Path(cwd) / program).resolve()) + (f" {arguments}" if arguments else "")
     child = pexpect.spawn(
         cmd,
         cwd=str(cwd) if cwd else None,
         timeout=90,
         encoding="utf-8",
         codec_errors="replace",
+        echo=False,
     )
     patterns = [pexpect.TIMEOUT, pexpect.EOF]
     for pattern, _ in answers:
@@ -100,7 +152,6 @@ def curl_request(
     data: str | None = None,
     headers: list | None = None,
     timeout: int = 60,
-    use_client_certs: bool = False,
     cookie_jar=None,
 ):
     cmd = ["curl", "-k", "-s", "--max-time", str(timeout), "-X", method, "-w", "\n%{http_code}"]
@@ -110,11 +161,6 @@ def curl_request(
         cmd += ["-d", data]
     if cookie_jar is not None:
         cmd += ["-c", str(cookie_jar), "-b", str(cookie_jar)]
-    if use_client_certs:
-        cert = os.getenv("REGISTRY_CLIENT_CERT", "").strip()
-        key = os.getenv("REGISTRY_CLIENT_KEY", "").strip()
-        if cert and key:
-            cmd += ["--cert", cert, "--key", key]
     cmd.append(url)
     result = run(cmd, timeout=timeout + 15)
     body, _, status = result.stdout.rpartition("\n")
@@ -131,10 +177,12 @@ def port_listening(port: int) -> bool:
     return re.search(rf":{port}\b", result.stdout) is not None
 
 
-def file_sha256(path) -> str | None:
+def file_sha256(path) -> str:
     result = run(["sha256sum", str(path)])
     if result.exit_code != 0 or not result.stdout:
-        return None
+        result = run(["sudo", "-n", "sha256sum", str(path)])
+    if result.exit_code != 0 or not result.stdout:
+        raise RuntimeError(f"cannot hash {path}: {result.output.strip()}")
     return result.stdout.split()[0]
 
 

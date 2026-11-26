@@ -1,6 +1,6 @@
 # OpenAN Installation Test Plan
 
-> Version: v0.2 | Date: 2026-11-19 | Author: Installation WG test owner (TBD) | Review status: Pending review
+> Version: v0.3 | Date: 2026-11-26 | Author: Installation WG test owner (TBD) | Review status: Pending review
 > Related feature proposal: [openan-installation#2](https://github.com/project-openan/openan-installation/issues/2) · [#5](https://github.com/project-openan/openan-installation/issues/5) · [#9](https://github.com/project-openan/openan-installation/issues/9) · [#36](https://github.com/project-openan/openan-installation/issues/36) | Tracking issue: [integration-test#19](https://github.com/project-openan/integration-test/issues/19) | Version milestone: `26-winter`
 > Archive path: `docs/plans/26-winter/`
 
@@ -102,7 +102,7 @@ Aligned with Framework §10; applicable to this feature:
 | SCN-INST-006 | Offline compose stack (--eval + DATABASE_TYPE) | offline-install-compose | P0–P2 | Issue #9/#36 |
 | SCN-INST-007 | Binary offline tarball install | binary/offline-install | P1 | Issue #9 |
 | SCN-INST-008 | Build tooling (image tag/push, offline bundle from local source) | containerized/build, offline build | P1–P2 | Issue #9 |
-| SCN-INST-009 | Installer DFX capabilities (probes, diagnostics, idempotency, uninstall, data survival, HPA, TLS, multi-arch/distro) | all lines | P0–P2 | 23 DFX cases |
+| SCN-INST-009 | Installer DFX capabilities (probes, diagnostics, idempotency, uninstall, data survival, HPA, TLS, multi-arch/distro) | all lines | P0–P2 | 27 DFX cases |
 
 ---
 
@@ -130,6 +130,8 @@ Every case must carry the full set of labels in code: `feature` (openan-installa
 Cases are carried in the 16-column CSV archived in the same directory as this plan: [`testcases-openan-installation.csv`](testcases-openan-installation.csv) — **51 cases: 24 FIT + 27 DFX**. The DFX dimension is declared per case in the `Notes` column (`DFX type`: DFT/DFD/DFS/DFR/DFP/DFNS/DFC) and mapped to the standard `Case Type` values (Deployment/Exception/Stability/Performance/Security/Compatibility Test).
 
 Revision v0.2 (2026-11-19 coverage audit): fixed two stale chart-contract cases (testability-001 OC probes exec→tcpSocket; performance-001 retargeted from orchestration HPA — rejected by the chart — to openan-frontend HPA), corrected the first-boot admin token flow (initial password → 403 Password change required → change password → token), and added five audit-gap cases: online uninstall data preservation (serviceability-007), binary offline uninstall (serviceability-008), No-MetalLB NodePort fallback (reliability-005), compose config parser injection protection (security-006), binary offline bundle build (binary-pack-001).
+
+Revision v0.3 (2026-11-26 test-code review): aligned the case table with the batch-1 automation. binary-install-001 and binary-components-001 verify readiness through the registry query API (the binary registry-center v1.0.0 exposes no `/health` route) and through the reverse-proxied API endpoints; llm-config-001 supplies the API key through the `LLM_API_KEY` environment variable; the offline K8s cases run the installers with `--yes`; serviceability-003 starts the sample agents server so that the sample-agent ports are really released; the token endpoint deviation caused by the frontend gateway (bare `/api/v1/*` is not proxied) is recorded in the Notes of helm-online-001 and offline-compose-001.
 
 Case table status: generated via the test-case generation skills, cross-checked for the FIT/DFX boundary, case-reviewed, and audited against the repository architecture/QUICKSTART documents. Review intermediates are not archived in this repository.
 

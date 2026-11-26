@@ -5,20 +5,38 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import re
 import secrets
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 from utils.env import InstallConfig
-from utils.shell import CommandResult, curl_request, kubectl, kubectl_jsonpath, run, run_interactive, wait_until
+from utils.shell import (
+    CommandResult,
+    curl_request,
+    kubectl,
+    kubectl_jsonpath,
+    register_secret,
+    run_interactive,
+    wait_until,
+)
 
 log = logging.getLogger("openan-e2e.helm")
 
+FULL_STACK_PODS = ("registry-center", "orchestration-center", "openan-frontend", "openan-postgres")
+
 
 def online_install_dir(cfg: InstallConfig) -> Path:
-    return cfg.repo_path / "containerized" / "online-install"
+    return cfg.repo_dir / "containerized" / "online-install"
+
+
+def metallb_pool_exists() -> bool:
+    result = kubectl(
+        ["get", "ipaddresspool", "openan-pool", "-n", "metallb-system", "--ignore-not-found", "-o", "name"],
+        timeout=60,
+    )
+    return result.exit_code == 0 and bool(result.stdout.strip())
 
 
 def require_helm_env(cfg: InstallConfig) -> None:
@@ -30,6 +48,8 @@ def require_helm_env(cfg: InstallConfig) -> None:
         pytest.skip("OPENAN_INSTALL_ADMIN_PASSWORD / OPENAN_INSTALL_DB_PASSWORD are not set")
     if not (cfg.llm_model and cfg.llm_api_url and cfg.llm_api_key):
         pytest.skip("OPENAN_INSTALL_LLM_MODEL / _API_URL / _API_KEY are not set")
+    if not cfg.metallb_pool and not metallb_pool_exists():
+        pytest.skip("OPENAN_INSTALL_METALLB_POOL is not set and the cluster has no openan-pool IPAddressPool")
 
 
 def wizard_answers(cfg: InstallConfig, components_answer: str | None = None) -> list:
@@ -44,7 +64,7 @@ def wizard_answers(cfg: InstallConfig, components_answer: str | None = None) -> 
             # MetalLB range (uninstall.sh deletes it): leaving it empty strands
             # LoadBalancer services in <pending> on the next install.
             (r"install metallb", "y"),
-            (r"metallb ip pool", "192.168.200.136-192.168.200.153"),
+            (r"metallb ip pool", cfg.metallb_pool),
             # configure.py Step 1: components (full-stack default). The trailing "["
             # disambiguates the prompt from the "Components:" line in the deploy summary.
             (r"components\s*\[", "all"),
@@ -53,6 +73,8 @@ def wizard_answers(cfg: InstallConfig, components_answer: str | None = None) -> 
             (r"orchestration-center image tag", cfg.image_tag),
             (r"frontend image", cfg.frontend_type),
             (r"portal image tag", cfg.portal_tag),
+            (r"Database \[in-cluster", "in-cluster"),
+            (r"Database backend \[", "postgresql"),
             # configure.py Step 4: LLM. The chat/embed/rerank prompts all contain
             # "model"/"url"/"key", so match each capability's frame specifically and
             # skip the optional embed/rerank/A2A-T blocks.
@@ -107,12 +129,12 @@ def install_online_helm(
 def uninstall_online_helm(cfg: InstallConfig) -> CommandResult:
     log.info("uninstall_online_helm")
     t0 = time.time()
-    # uninstall.sh asks three yes/no questions via /dev/tty; answer them
+    # uninstall.sh asks three yes/no questions on stdin; answer them
     # explicitly so the run does not hang on an unattended stdin.
     answers = [
-        (r"Remove persistent data", "y"),   # default no, but we want full cleanup
-        (r"Delete namespace", "y"),         # default yes
-        (r"Proceed with uninstall", "y"),   # default yes
+        (r"Remove persistent data[^\n]*\?", "y"),   # default no, but we want full cleanup
+        (r"Delete namespace[^\n]*\?", "y"),         # default yes
+        (r"Proceed with uninstall\?", "y"),         # default yes
     ]
     result = run_interactive(
         f"bash {online_install_dir(cfg) / 'uninstall.sh'}",
@@ -124,41 +146,16 @@ def uninstall_online_helm(cfg: InstallConfig) -> CommandResult:
     return result
 
 
-def online_install_dir_chart(cfg: InstallConfig) -> Path:
-    return online_install_dir(cfg) / "openan-chart"
-
-
-def set_registry_signing(cfg: InstallConfig, enabled: bool) -> CommandResult:
-    """Toggle card signature validation on the live registry by setting the
-    REGISTRY_SIGNATURE_VALIDATION_ENABLED env var on the Deployment (the
-    app's apply_env_overrides maps REGISTRY_* env to config keys), then
-    rolling-restart the pod so the new env is picked up.
-
-    This survives pod recreation (unlike sed on the image-baked server.conf,
-    which is reverted when the container restarts from the image layer).
-    """
-    value = "true" if enabled else "false"
-    log.info("set_registry_signing: REGISTRY_SIGNATURE_VALIDATION_ENABLED=%s", value)
-    result = kubectl(["-n", "openan", "set", "env", "deploy/registry-center",
-                      f"REGISTRY_SIGNATURE_VALIDATION_ENABLED={value}"])
-    if result.exit_code != 0:
-        log.error("set_registry_signing: kubectl set env failed: %s", result.output)
-        return result
-    # Rolling restart so the new env reaches the running process; wait for the
-    # health endpoint to confirm the registry is serving again.
-    kubectl(["-n", "openan", "rollout", "restart", "deploy/registry-center"])
-    kubectl(["-n", "openan", "rollout", "status", "deploy/registry-center", "--timeout=300s"])
-
-    def _registry_serving():
-        _, status = curl_request("GET", f"{platform_base('')}/registry/health")
-        return status == "200"
-    wait_until(_registry_serving, timeout=120)
-    log.info("set_registry_signing: registry serving again")
-    return result
-
-
 def pods_output() -> str:
     return kubectl(["-n", "openan", "get", "pods", "--no-headers"]).stdout or ""
+
+
+def all_pods_running_and_ready(required: Sequence[str] = ()) -> bool:
+    lines = [line.split() for line in pods_output().splitlines() if line.strip()]
+    ready = {columns[0] for columns in lines if len(columns) >= 3 and columns[1] == "1/1" and columns[2] == "Running"}
+    if not lines or len(ready) != len(lines):
+        return False
+    return all(any(name.startswith(prefix) for name in ready) for prefix in required)
 
 
 def pod_name(fragment: str) -> str | None:
@@ -169,11 +166,6 @@ def pod_name(fragment: str) -> str | None:
         if fragment in name:
             return name
     return None
-
-
-def all_pods_running_and_ready() -> bool:
-    lines = [line for line in pods_output().splitlines() if line.strip()]
-    return bool(lines) and all(("Running" in line and "1/1" in line) for line in lines)
 
 
 def platform_base(transcript: str) -> str:
@@ -208,6 +200,7 @@ def add_vendor_credential(identity: str = "e2e-vendor") -> str:
         "secret/openan-rc-credentials", "{.data.integration_credentials\\.conf}").stdout.strip()
     conf = base64.b64decode(conf_b64).decode() if conf_b64 else ""
     token = secrets.token_urlsafe(48)
+    register_secret(token)
     digest = hmac.new(hmac_key.encode(), token.encode(), hashlib.sha256).hexdigest()
     if f"credential.{identity}.identity=" in conf:
         # Identity already present (e.g. from an earlier interrupted run); the
@@ -232,6 +225,9 @@ def add_vendor_credential(identity: str = "e2e-vendor") -> str:
     # new/rotated entry is picked up, then poll the health endpoint until the
     # registry actually serves through the ingress (pod Ready ≠ endpoint synced).
     kubectl(["-n", "openan", "delete", "pod", "-l", "app=registry-center", "--wait=false"])
+    wait_until(lambda: all_pods_running_and_ready(("registry-center",)), timeout=600)
+    log.info("add_vendor_credential: registry pod ready")
+
 
     def _registry_serving():
         _, status = curl_request("GET", f"{platform_base('')}/registry/health")

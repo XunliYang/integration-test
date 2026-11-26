@@ -1,20 +1,18 @@
+import os
 import pathlib
+import shutil
 
 import pytest
 
+from utils.binary_install import (
+    SAMPLE_AGENTS_PORTS,
+    SAMPLE_ANSWERS,
+    install_binary,
+    uninstall_binary,
+    wait_registry_up,
+)
 from utils.env import install_config
-from utils.shell import file_sha256, http_status, port_listening, run, run_interactive, wait_until
-
-# The binary registry-center has no /health route; its FastAPI app only exposes
-# /rest/v1/registry-center/* (openapi/docs disabled). The query endpoint returns
-# 200 with an empty list when the service is up and reachable.
-REGISTRY_UP = "http://127.0.0.1:5000/rest/v1/registry-center/agent-cards"
-
-
-def _wait_registry_up(timeout: int = 120):
-    # The install script backgrounds uvicorn and exits before it is listening;
-    # poll until the query endpoint answers 200.
-    assert wait_until(lambda: http_status(REGISTRY_UP) == "200", timeout=timeout), REGISTRY_UP
+from utils.shell import file_sha256, port_listening, run, wait_until
 
 pytestmark = [
     getattr(pytest.mark, "openan-installation"),
@@ -23,13 +21,21 @@ pytestmark = [
     pytest.mark.smoke,
 ]
 
-LLM_SKIP = [(r"llm", "y")]
-UNINSTALL_PORTS = [5000, 5001, 8080, 26335, 26336] + list(range(8899, 8908))
-TOOL_COMMANDS = {"python3": ["python3", "--version"], "node": ["node", "-v"], "nginx": ["nginx", "-v"]}
+UNINSTALL_PORTS = (5000, 5001, *SAMPLE_AGENTS_PORTS)
 
 
-def _install_full_stack(cfg):
-    install = run_interactive("./install.sh", cwd=cfg.binary_dir, answers=LLM_SKIP)
+def _resolve_tool(name: str, *fallbacks: pathlib.Path) -> str:
+    found = shutil.which(name)
+    if found:
+        return found
+    for candidate in fallbacks:
+        if os.access(candidate, os.X_OK):
+            return str(candidate)
+    pytest.fail(f"environment tool {name} is not on PATH and not found in {[str(item) for item in fallbacks]}")
+
+
+def _install_full_stack(cfg, *, start_sample: bool = False) -> str:
+    install = install_binary(cfg, answers=SAMPLE_ANSWERS if start_sample else None)
     assert install.exit_code == 0, install.output
     # The install script backgrounds the services and exits before they bind;
     # wait until the data-plane ports are listening so a subsequent uninstall
@@ -37,31 +43,42 @@ def _install_full_stack(cfg):
     assert wait_until(lambda: port_listening(5000) and port_listening(5001), timeout=120), (
         "services did not start listening within 120s of install"
     )
+    return install.output
 
 
-def test_binary_rerun_keeps_certificates_idempotent(require_profile):
+@getattr(pytest.mark, "DFX-openan-installation-serviceability-001")
+@getattr(pytest.mark, "26-winter")
+def test_binary_rerun_keeps_certificates_idempotent(require_profile, cleanup):
     require_profile("online-vm")
     cfg = install_config()
+    cleanup.add("binary uninstall", uninstall_binary, cfg)
     _install_full_stack(cfg)
     cert_paths = ["/etc/nginx/ssl/cert.pem", "/etc/nginx/ssl/key.pem"]
     registry_ssl = cfg.binary_dir / "registry-center" / "etc" / "ssl"
-    if registry_ssl.is_dir():
-        cert_paths += [str(item) for item in sorted(registry_ssl.glob("*")) if item.is_file()]
+    assert registry_ssl.is_dir(), f"registry-center TLS directory not found: {registry_ssl}"
+    cert_paths += [str(item) for item in sorted(registry_ssl.glob("*")) if item.is_file()]
     hashes_before = {path: file_sha256(path) for path in cert_paths}
-    rerun = run_interactive("./install.sh", cwd=cfg.binary_dir, answers=LLM_SKIP, evidence_stem="serviceability-001")
+    rerun = install_binary(cfg, evidence_stem="serviceability-001")
     assert rerun.exit_code == 0, rerun.output
-    _wait_registry_up()
+    wait_registry_up()
     hashes_after = {path: file_sha256(path) for path in cert_paths}
     assert hashes_after == hashes_before, f"certificate files changed after re-run: {cert_paths}"
-    uninstall = run("./uninstall.sh --force", cwd=cfg.binary_dir, timeout=600)
+    uninstall = uninstall_binary(cfg)
     assert uninstall.exit_code == 0, uninstall.output
 
 
-def test_uninstall_force_removes_artifacts_keeps_tools(require_profile):
+@getattr(pytest.mark, "DFX-openan-installation-serviceability-003")
+@getattr(pytest.mark, "26-winter")
+def test_uninstall_force_removes_artifacts_keeps_tools(require_profile, cleanup):
     require_profile("online-vm")
     cfg = install_config()
-    _install_full_stack(cfg)
-    uninstall = run("./uninstall.sh --force", cwd=cfg.binary_dir, timeout=600)
+    cleanup.add("binary uninstall", uninstall_binary, cfg)
+    output = _install_full_stack(cfg, start_sample=True)
+    assert "agents examples server:" in output, f"sample agents server was not started:\n{output[-1500:]}"
+    assert wait_until(lambda: all(port_listening(port) for port in SAMPLE_AGENTS_PORTS), timeout=120), (
+        "sample agents server did not open all of its ports"
+    )
+    uninstall = uninstall_binary(cfg)
     assert uninstall.exit_code == 0, uninstall.output
     # Services were confirmed listening before uninstall; all 14 ports must be
     # released. Agents share one process (samples.start_agents_server listens on
@@ -79,6 +96,11 @@ def test_uninstall_force_removes_artifacts_keeps_tools(require_profile):
     )
     assert not (cfg.binary_dir / "registry-center").exists()
     assert not (cfg.binary_dir / "orchestration-center").exists()
-    for name, argv in TOOL_COMMANDS.items():
-        result = run(argv, timeout=60)
+    tools = (
+        ("python3", "--version", (cfg.binary_dir / ".python3.12" / "python" / "bin" / "python3",)),
+        ("node", "-v", (cfg.binary_dir / ".node" / "bin" / "node",)),
+        ("nginx", "-v", (pathlib.Path("/usr/sbin/nginx"), pathlib.Path("/sbin/nginx"))),
+    )
+    for name, argument, fallbacks in tools:
+        result = run([_resolve_tool(name, *fallbacks), argument], timeout=60)
         assert result.exit_code == 0, f"environment tool {name} is not preserved: {result.output}"

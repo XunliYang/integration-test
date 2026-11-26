@@ -11,6 +11,12 @@ class InstallConfigError(RuntimeError):
     pass
 
 
+def _unquote(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
 def _parse_env_file(path: Path) -> dict:
     values = {}
     if not path.is_file():
@@ -20,7 +26,7 @@ def _parse_env_file(path: Path) -> dict:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        values[key.strip()] = value.strip()
+        values[key.strip()] = _unquote(value.strip())
     return values
 
 
@@ -36,7 +42,7 @@ def load_env(env_file: Path | None = None) -> dict:
 @dataclass(frozen=True)
 class InstallConfig:
     machine_profile: str
-    repo_path: Path
+    repo_path: Path | None
     binary_subdir: str
     llm_model: str
     llm_api_url: str
@@ -46,13 +52,20 @@ class InstallConfig:
     frontend_type: str
     admin_password: str
     db_password: str
+    metallb_pool: str
     offline_k8s_bundle: str
     offline_compose_bundle: str
     offline_config_env: str
 
     @property
+    def repo_dir(self) -> Path:
+        if self.repo_path is None:
+            raise InstallConfigError("OPENAN_INSTALL_REPO_PATH is not set")
+        return self.repo_path
+
+    @property
     def binary_dir(self) -> Path:
-        return self.repo_path / self.binary_subdir
+        return self.repo_dir / self.binary_subdir
 
 
 def install_config() -> InstallConfig:
@@ -66,7 +79,7 @@ def install_config() -> InstallConfig:
     repo_path = os.getenv("OPENAN_INSTALL_REPO_PATH", "").strip()
     return InstallConfig(
         machine_profile=profile,
-        repo_path=Path(repo_path) if repo_path else Path.cwd(),
+        repo_path=Path(repo_path) if repo_path else None,
         binary_subdir=os.getenv("OPENAN_INSTALL_BINARY_SUBDIR", "binary/one-click"),
         llm_model=os.getenv("OPENAN_INSTALL_LLM_MODEL", "").strip(),
         llm_api_url=os.getenv("OPENAN_INSTALL_LLM_API_URL", "").strip(),
@@ -76,6 +89,7 @@ def install_config() -> InstallConfig:
         frontend_type=os.getenv("OPENAN_INSTALL_FRONTEND_TYPE", "workflow-designer").strip(),
         admin_password=os.getenv("OPENAN_INSTALL_ADMIN_PASSWORD", "").strip(),
         db_password=os.getenv("OPENAN_INSTALL_DB_PASSWORD", "").strip(),
+        metallb_pool=os.getenv("OPENAN_INSTALL_METALLB_POOL", "").strip(),
         offline_k8s_bundle=os.getenv("OPENAN_INSTALL_OFFLINE_K8S_BUNDLE", "").strip(),
         offline_compose_bundle=os.getenv("OPENAN_INSTALL_OFFLINE_COMPOSE_BUNDLE", "").strip(),
         offline_config_env=os.getenv("OPENAN_INSTALL_OFFLINE_CONFIG_ENV", "").strip(),

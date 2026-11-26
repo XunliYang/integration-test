@@ -2,20 +2,20 @@ Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Pri
 26-winter,One-click binary install brings full stack ready,[FIT-openan-installation-binary-install-001],openan-installation,n/a,https://github.com/project-openan/openan-installation/issues/2,Functional Test,P0,"1. One networked Linux VM (x86_64 or aarch64; Debian/Ubuntu or CentOS/RHEL/openEuler) with sudo privileges
 2. The openan-installation repository is cloned and install.sh, uninstall.sh, and configure_llm.sh under binary/one-click are executable
 3. The LLM configuration step is planned to be skipped (interactive input y)","1. Run ./install.sh in binary/one-click (default --reg --orc full-stack mode; skip LLM configuration) (see Result 1)
-2. Run curl http://127.0.0.1:5000/health to check the registry-center health status (see Result 2)
-3. Run curl -k https://127.0.0.1/, curl -k https://127.0.0.1/registry/, and curl -k https://127.0.0.1/api/orchestrate/ to verify the nginx single remote entry and the three reverse-proxy paths (see Result 3)
+2. Run curl http://127.0.0.1:5000/rest/v1/registry-center/agent-cards to check that registry-center is serving (see Result 2)
+3. Run curl -k https://127.0.0.1/, curl -k https://127.0.0.1/registry/rest/v1/registry-center/agent-cards, and curl -k https://127.0.0.1/api/orchestrate/rest/v1/orchestrate/templates to verify the nginx single remote entry and the three reverse-proxy paths (see Result 3)
 4. Cleanup: run ./uninstall.sh --force to uninstall all services (see Result 4)","1. The install script exits with code 0 and the summary prints each service PID and access URL
-2. The health endpoint returns 200 with status ok in the response body
-3. Both entries return 200 (the / path serves the frontend page; /registry/ proxies to registry-center port 5000)
-4. After uninstall, ports 5000/5001/443 are no longer listening and the registry-center/ and orchestration-center/ directories are deleted",Yes,test_binary_install.py::test_one_click_install_full_stack_ready,,,design method: scenario; environment: online; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: binary/one-click/QUICKSTART.md service port and URL table
+2. Returns 200 (the binary registry-center exposes no /health route; the query API answers 200 once the service is up)
+3. All three return 200 (the / path serves the frontend page; /registry/ and /api/orchestrate/ strip their prefix and proxy to ports 5000 and 5001, whose backends serve no root route)
+4. After uninstall, ports 5000/5001/443 are no longer listening and the registry-center/ and orchestration-center/ directories are deleted",Yes,test_binary_install.py::test_one_click_install_full_stack_ready,,,design method: scenario; environment: online; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: binary/one-click/QUICKSTART.md service port and URL table; automation note (v0.3): binary registry-center v1.0.0 exposes no /health route and its root path serves no route; readiness is verified through the query API and the reverse-proxied API endpoints; the install summary must list a PID and URL for every started service
 26-winter,Modular flag --reg installs registry-center only,[FIT-openan-installation-binary-components-001],openan-installation,n/a,https://github.com/project-openan/openan-installation/issues/5,Functional Test,P0,"1. One networked Linux VM (same as binary-install-001 precondition 1)
 2. The binary/one-click install scripts are executable","1. Run ./install.sh --reg to install registry-center only (skip LLM configuration) (see Result 1)
-2. Run curl http://127.0.0.1:5000/health to check registry-center (see Result 2)
+2. Run curl http://127.0.0.1:5000/rest/v1/registry-center/agent-cards to check registry-center (see Result 2)
 3. Run ss -ltn to confirm ports 5001 and 443 are not listening and the orchestration-center/ directory does not exist (see Result 3)
 4. Cleanup: run ./uninstall.sh --force (see Result 4)","1. The install exits with code 0 (only registry-related steps executed)
-2. Returns 200 with status ok
+2. Returns 200 (the binary registry-center exposes no /health route; the query API answers 200 once the service is up)
 3. Ports 5001 and 443 have no listener and the orchestration-center/ directory does not exist (uninstalled components leave no resources)
-4. Uninstall completes and port 5000 is released",Yes,test_binary_install.py::test_reg_only_install_deploys_registry_center_alone,,,design method: equivalence partitioning; environment: online; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: QUICKSTART mode comparison table (--reg column)
+4. Uninstall completes and port 5000 is released",Yes,test_binary_install.py::test_reg_only_install_deploys_registry_center_alone,,,design method: equivalence partitioning; environment: online; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: QUICKSTART mode comparison table (--reg column); automation note (v0.3): readiness verified through the query API (no /health route)
 26-winter,Orchestration-only mode writes registry URL as-is,[FIT-openan-installation-binary-regurl-001],openan-installation,n/a,https://github.com/project-openan/openan-installation/issues/5,Functional Test,P1,"1. One networked Linux VM (same as binary-install-001 precondition 1)
 2. A reachable registry-center address <REGISTRY_URL> is determined (local or remote)","1. Run ./install.sh --orc and enter <REGISTRY_URL> (not the default) at the registry center URL prompt (skip LLM configuration) (see Result 1)
 2. Check the agent_registry_url field in the orchestration-center server.conf (see Result 2)
@@ -32,7 +32,7 @@ Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Pri
 3. Uninstall completes",Yes,,,,design method: scenario; environment: online; language_profile: shell; protocol_primitive: none; execution: full; verification source: QUICKSTART Step 3.5
 26-winter,Valid LLM config passes validation and is written,[FIT-openan-installation-llm-config-001],openan-installation,n/a,https://github.com/project-openan/openan-installation/issues/5,Functional Test,P0,"1. registry-center is installed on the VM via one-click (service running)
 2. A reachable OpenAI-compatible LLM endpoint is prepared (model name <MODEL>, API URL <API_URL>, valid API key)
-3. The registry-center llm_config.json has been backed up","1. Run ./configure_llm.sh --reg --model <MODEL> --url <API_URL> --api-key <KEY> (see Result 1)
+3. The registry-center llm_config.json has been backed up","1. Run ./configure_llm.sh --reg --model <MODEL> --url <API_URL> with the key supplied through the LLM_API_KEY environment variable (the documented alternative to --api-key) (see Result 1)
 2. Check the registry-center llm_config.json content (see Result 2)
 3. Cleanup: restore the backed-up llm_config.json (see Result 3)","1. Connectivity validation passes; the script exits with code 0 and prints a success message
 2. llm_config.json contains the entered model name and API URL (configuration written)
@@ -54,7 +54,7 @@ Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Pri
 2. registry-center-*, orchestration-center-*, openan-frontend-*, and openan-postgres-0 Pods are Running and Ready; Services and 3 Ingresses are all present
 3. The platform home page returns 200; the first token call with the initial password returns 403 Password change required (first-boot admin must change the initial password before a token is issued)
 4. The login sets a session; the password change returns success; the token call with the new password returns 200 with top-level access_token, token_type and expires_in in the response
-5. helm ls -n openan is empty and no workload remains in the openan namespace",Yes,test_helm_online.py::test_helm_wizard_full_stack_platform_usable,,,design method: scenario; environment: with-workload-cluster; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: online-install/QUICKSTART.md acceptance criteria and deployment verification
+5. helm ls -n openan is empty and no workload remains in the openan namespace",Yes,test_helm_online.py::test_helm_wizard_full_stack_platform_usable,,,design method: scenario; environment: with-workload-cluster; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: online-install/QUICKSTART.md acceptance criteria and deployment verification; automation note (v0.3): the token endpoint is reached through the ingress path /api/orchestrate/api/v1/auth/token (rewritten to /api/v1/auth/token at the OC) because the frontend gateway does not proxy /api/v1/* - product defect tracked against openan-portal and orchestration-center
 26-winter,Wizard component selection deploys registry-center only,[FIT-openan-installation-helm-components-001],openan-installation,registry-center,https://github.com/project-openan/openan-installation/issues/5,Functional Test,P0,"1. Networked ops machine, K8s cluster, image tag <IMAGE_TAG>, and LLM endpoint ready (same as helm-online-001 preconditions)
 2. The cluster has a default StorageClass or accepts hostPath fallback","1. Run ./install.sh; in the wizard select registry-center only (do not deploy orchestration); enter image tag and model configuration; choose in-cluster postgresql for SQL hosting (see Result 1)
 2. Run kubectl -n openan get pods,svc to check the deployment result (see Result 2)
@@ -99,9 +99,9 @@ Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Pri
 2. Offline K8s cluster (v1.33+, kubectl reachable, nodes Ready); containerd on each node trusts the in-cluster registry (certs.d)
 3. The offline node has 20GB+ free disk; the firewall opens 30500/30000-32767/80/443
 4. config.env has METALLB_POOL, DB_PASSWORD, OC_ADMIN_PASSWORD, and an internal LLM endpoint configured","1. Run scripts/check-env.sh --config config.env on the offline node (see Result 1)
-2. Run sudo scripts/install.sh --config config.env (see Result 2)
+2. Run sudo scripts/install.sh --config config.env --yes (see Result 2)
 3. Run kubectl -n openan get pods,svc,ingress; open the platform at the installer-printed URL and verify the registry entry via /registry/rest/v1/registry-center/agent-cards (see Result 3)
-4. Cleanup: run scripts/uninstall.sh --config config.env (see Result 4)","1. The environment check passes (no FAIL items)
+4. Cleanup: run sudo scripts/uninstall.sh --config config.env --yes (persistent data, namespace and MetalLB pool removal confirmed) (see Result 4)","1. The environment check passes (no FAIL items)
 2. Installation completes with the access URL printed; no external network access during the whole run (offline network)
 3. All Pods Running; Ingress has an ADDRESS; the platform returns 200 and the agent-cards API returns 200
 4. The release and in-cluster registry resources are removed",Yes,test_offline_k8s.py::test_offline_k8s_bundle_install_fully_offline,,,design method: scenario; environment: offline; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: offline-install/QUICKSTART.md Phase 3 and Verify; issue 9 acceptance criteria
@@ -122,7 +122,7 @@ Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Pri
 2. registry-center, orchestration-center, nginx, portal, and the bundled database services are all healthy; the public entry returns 200
 3. The first token call with the initial password returns 403 Password change required
 4. The password change succeeds and the token call with the new password returns 200 with top-level access_token, token_type and expires_in
-5. All containers are removed",Yes,test_offline_compose.py::test_offline_compose_stack_healthy_single_entry,,,design method: scenario; environment: offline; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: offline-install-compose/QUICKSTART.md Step 5 to Step 7
+5. All containers are removed",Yes,test_offline_compose.py::test_offline_compose_stack_healthy_single_entry,,,design method: scenario; environment: offline; language_profile: shell; protocol_primitive: none; execution: smoke; verification source: offline-install-compose/QUICKSTART.md Step 5 to Step 7; automation note (v0.3): the token endpoint is reached through /api/orchestrate/api/v1/auth/token because the public nginx does not proxy the bare /api/v1/* prefix (same gateway gap as helm-online-001); after the case's own uninstall the retained SQL volume and bind-mounted data are removed so that every run is a first boot
 26-winter,Compose DATABASE_TYPE postgresql selects bundled postgres,[FIT-openan-installation-compose-db-001],openan-installation,n/a,https://github.com/project-openan/openan-installation/issues/36,Functional Test,P2,"1. Offline host and compose offline bundle ready (same as offline-compose-001 preconditions)
 2. config.env sets DATABASE_TYPE=postgresql with the bundled database selected; other secrets generated via gen-secrets.sh","1. Run scripts/gen-secrets.sh --eval to generate the configuration and run sudo scripts/check-env.sh --config config.env (see Result 1)
 2. Run sudo scripts/install.sh --config config.env (see Result 2)
@@ -220,7 +220,7 @@ Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Pri
 2. The re-run completes (helm upgrade --install upgrades the existing release in place; no uninstall-rebuild first)
 3. The revision increments to N+1; PVCs are preserved; the openan-db-credentials Secret data matches the pre-run value (Secret reused, not rotated)
 4. Uninstall completes",Yes,,,,DFX type: DFS; design method: scenario; verification source: offline-install/QUICKSTART.md Changing configuration and upgrading; environment: offline; language_profile: shell; protocol_primitive: none; execution: full
-26-winter,Binary uninstall --force removes artifacts and preserves env tools,[DFX-openan-installation-serviceability-003],openan-installation,n/a,https://github.com/project-openan/openan-installation/issues/5,Deployment Test,P0,"1. A networked Linux VM has completed one successful full-stack install (services running)
+26-winter,Binary uninstall --force removes artifacts and preserves env tools,[DFX-openan-installation-serviceability-003],openan-installation,n/a,https://github.com/project-openan/openan-installation/issues/5,Deployment Test,P0,"1. A networked Linux VM has completed one successful full-stack install with the sample agents server started (services running)
 2. The versions and paths of python3, node, and nginx have been recorded","1. Run ./uninstall.sh --force (see Result 1)
 2. Check ports 5000/5001/8080/8899-8907/26335/26336 and the existence of /etc/nginx/conf.d/openan.conf, /etc/nginx/ssl/, registry-center/, and orchestration-center/ (see Result 2)
 3. Run python3 --version, node -v, and nginx -v to verify the environment tools are preserved (see Result 3)
@@ -294,10 +294,10 @@ Milestone,Case Name,Case ID,Module,Component Deps,Requirement Link,Case Type,Pri
 2. The key plaintext never appears in the captured output; the summary and logs show a masked form (first 4 and last 4 characters, or *** for short keys)
 3. The configuration is restored and the capture file is deleted",Yes,,,,DFX type: DFNS; design method: error guessing; verification source: issue 5 section 1.1 Sensitive info protection; environment: online; language_profile: shell; protocol_primitive: none; execution: full
 26-winter,Offline default enables in-cluster HTTPS with generated CA,[DFX-openan-installation-security-002],openan-installation,n/a,https://github.com/project-openan/openan-installation/issues/5,Security Test,P0,"1. Offline cluster install preconditions ready; config.env keeps HTTPS_ENABLED=true (default) with no custom TLS Secret names
-2. The install node has openssl and python3 (certificate generation dependencies)","1. Run sudo scripts/install.sh --config config.env to complete the install (see Result 1)
+2. The install node has openssl and python3 (certificate generation dependencies)","1. Run sudo scripts/install.sh --config config.env --yes to complete the install (see Result 1)
 2. Run kubectl -n openan get secret to check that openan-rc-tls, openan-oc-tls, and openan-ingress-client are generated (see Result 2)
 3. Verify the registry-center TLS service in-cluster with the shared CA (kubectl exec running curl --cacert trust.cer https://registry-center:5000/health or openssl s_client) (see Result 3)
-4. Cleanup: run scripts/uninstall.sh --config config.env (see Result 4)","1. The install completes with no certificate generation errors
+4. Cleanup: run sudo scripts/uninstall.sh --config config.env --yes (see Result 4)","1. The install completes with no certificate generation errors
 2. All three TLS Secrets are generated (with server.cer, server_key.pem, cert_pwd, trust.cer, and ingress client material)
 3. In-cluster HTTPS access to /health with the shared CA returns 200 (the ingress always validates backend certificates via proxy-ssl-verify)
 4. Resources are removed",Yes,test_offline_https.py::test_offline_default_https_generated_ca,,,in-cluster verification carrier: a temporary Pod mounting the openan-ingress-client Secret runs curl/openssl and is deleted in-case (avoid depending on certificate paths inside application Pods); DFX type: DFNS; design method: scenario; verification source: offline-install/QUICKSTART.md In-cluster HTTPS default on; environment: offline; language_profile: shell; protocol_primitive: none; execution: smoke
