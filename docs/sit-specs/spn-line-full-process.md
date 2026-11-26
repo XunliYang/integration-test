@@ -152,7 +152,7 @@ Rules: no hardcoded IPs, credentials, or tokens; the OMC/line simulator is test 
 | `[SIT-spn-line-full-process-009]` | Repair execution failure: defined degraded state, consistent line state | restoration fault injection | P1 | Draft | excluded until ready |
 | `[SIT-spn-line-full-process-010]` | Concurrent tickets isolation and closure idempotency | concurrency | P2 | Draft | excluded until ready |
 
-`Ready` means that every contract and environment dependency for the case is resolved and reviewed. A case blocked by any §9 item is `Draft`; §9 item 7 currently blocks the topology setup for every case, so there are no Ready cases. Only a Ready case may retain `smoke` and/or `full` execution membership. Draft cases must not be implemented, executed as release evidence, or counted in exit-gate denominators.
+`Ready` means that every contract and environment dependency for the case is resolved and reviewed. A case blocked by any §9 item is `Draft`; §9 item 7 currently blocks the topology setup for every case, so there are no Ready cases. Only a Ready case may retain its `smoke` or `full` execution membership. Draft cases must not be implemented, executed as release evidence, or counted in exit-gate denominators.
 
 P0/P1 rows use Requirement Link https://github.com/project-openan/integration-test/issues/34 and `Automatable=Yes` as the final automation requirement; that future automation requirement does not make a Draft row currently executable. All case definitions below use the same requirement link.
 
@@ -163,17 +163,20 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** RC centers deployed; all four agents registered; diagnosis workflow imported; S4 scenario (a) loaded (far-end optical module fault); OMC simulator configured with restoration supported and baseline/degraded/recovered metric sets; authorization policy = grant; EOMS stub ready; `USE_MOCK_LLM=true`. Both SPN agent fixtures are attached to one test-controlled synchronous response barrier. The barrier holds each agent's response after recording its diagnosis-start event and has a bounded test wait.
 - **Steps:**
-  1. Reset event, command, notification, and ticket captures; arm the two-agent barrier before publishing the complaint ticket.
-  2. Publish the ticket at the EOMS stub and capture the WAIMO grab, workbench dispatch, workflow identifier, and the two child-branch identifiers.
-  3. Wait within the barrier bound for both SPN agents to report diagnosis start. Release both held responses only after both start events have been recorded; a timeout fails the step and still enters cleanup.
-  4. Capture both SPN results, the aggregation event, and the diagnosis write-back at EOMS.
-  5. Observe authorization, repair, OMC completion notification, performance verification, recovery notification, and EOMS closure using framework waits.
+  1. Reset event, command, notification, and ticket captures.
+  2. Arm the two-agent barrier before publishing the complaint ticket.
+  3. Publish the ticket at the EOMS stub.
+  4. Capture the WAIMO grab, workbench dispatch, workflow identifier, and the two child-branch identifiers.
+  5. Wait within the barrier bound for both SPN agents to report diagnosis start; a timeout fails the step and still enters cleanup.
+  6. Release both held responses only after both start events have been recorded.
+  7. Capture both SPN results, the aggregation event, and the diagnosis write-back at EOMS.
+  8. Observe authorization, repair, OMC completion notification, performance verification, recovery notification, and EOMS closure using framework waits.
 - **Assertions:**
-  - **A1 (Step 1):** Captures are empty, the ticket ID is unique, and the barrier has two registered participants before the ticket is published.
-  - **A2 (Step 2):** The grab event precedes dispatch; dispatch reaches the workbench and then two structurally distinct parallel branches, one for each expected SPN agent identity, under the imported workflow identifier.
-  - **A3 (Step 3):** Both branch-start events carry the same ticket and parent workflow identifiers and occur before the test's barrier-release event. Both result events occur after that release. Parallelism is therefore established by the two branches and controlled start/result ordering, never solely by natural timing overlap.
-  - **A4 (Step 4):** Exactly one consolidated conclusion references both branch results and matches the precomputed root cause. The EOMS write-back contains the same ticket ID, conclusion, contributing agent IDs, and event timestamps.
-  - **A5 (Step 5):** A grant decision precedes the first simulator repair command; the completion notification precedes verification; verification equals the recovered metric fixture; a passed verification precedes the recovery notification; the recovery notification precedes closure; and EOMS records exactly one closure for the ticket. Decision and notification field assertions use only the confirmed §9 contracts.
+  - **A1 (Steps 1 and 2):** Captures are empty, the ticket ID is unique, and the barrier has two registered participants before the ticket is published.
+  - **A2 (Steps 3 and 4):** The grab event precedes dispatch; dispatch reaches the workbench and then two structurally distinct parallel branches, one for each expected SPN agent identity, under the imported workflow identifier.
+  - **A3 (Steps 5 and 6):** Both branch-start events carry the same ticket and parent workflow identifiers and occur before the test's barrier-release event. Both result events occur after that release. Parallelism is therefore established by the two branches and controlled start/result ordering, never solely by natural timing overlap.
+  - **A4 (Step 7):** Exactly one consolidated conclusion references both branch results and matches the precomputed root cause. The EOMS write-back contains the same ticket ID, conclusion, contributing agent IDs, and event timestamps.
+  - **A5 (Step 8):** A grant decision precedes the first simulator repair command; the completion notification precedes verification; verification equals the recovered metric fixture; a passed verification precedes the recovery notification; the recovery notification precedes closure; and EOMS records exactly one closure for the ticket. Decision and notification field assertions use only the confirmed §9 contracts.
 - **Finally / Cleanup:** In a `finally` path, release the barrier even after start-wait timeout or assertion failure and assert that neither agent fixture remains blocked. Restore the line baseline and assert equality with the baseline snapshot; reset both SPN fixtures, stubs, policy, metrics, and scenario state; verify that no repair or notification capture leaks into the next case.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_full_process_closes_after_verified_restoration` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -182,15 +185,19 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** Centers and all four agents are registered; the published diagnosis workflow is imported; S4 scenario (a) and its expected root cause are loaded; EOMS capture is empty; `USE_MOCK_LLM=true`. The two SPN fixtures use the same bounded, test-controlled start barrier as 001. No restoration is requested.
 - **Steps:**
-  1. Arm the barrier, reset captures, and publish a diagnosis-only complaint ticket.
-  2. Capture the generated diagnosis message, workflow ID, and the two parallel child branches.
-  3. Wait for both agent-start events within the barrier bound, then release both responses together.
-  4. Capture both results, summarization, and EOMS write-back; wait for the diagnosis-only terminal state.
+  1. Arm the barrier.
+  2. Reset captures.
+  3. Publish a diagnosis-only complaint ticket.
+  4. Capture the generated diagnosis message, workflow ID, and the two parallel child branches.
+  5. Wait for both agent-start events within the barrier bound.
+  6. Release both responses together.
+  7. Capture both results, summarization, and EOMS write-back.
+  8. Wait for the diagnosis-only terminal state.
 - **Assertions:**
-  - **A1 (Step 1):** The barrier has exactly the two expected SPN participants and no repair command exists before publication.
-  - **A2 (Step 2):** The workflow sequence is generate message -> parallel diagnose -> summarize; the workflow ID matches the imported composition and each child branch has the expected distinct agent ID.
-  - **A3 (Step 3):** Both starts precede the controlled release and both results follow it; neither branch result is fabricated by the fixture.
-  - **A4 (Step 4):** One consolidated conclusion contains evidence linked to both branch IDs and the precomputed root-cause classification. The EOMS payload contains the ticket ID, conclusion structure, both contributing agents, and timestamps. The diagnosis-only terminal state is reached and the OMC repair-command log remains empty.
+  - **A1 (Steps 1, 2, and 3):** The barrier has exactly the two expected SPN participants and no repair command exists before publication.
+  - **A2 (Step 4):** The workflow sequence is generate message -> parallel diagnose -> summarize; the workflow ID matches the imported composition and each child branch has the expected distinct agent ID.
+  - **A3 (Steps 5 and 6):** Both starts precede the controlled release and both results follow it; neither branch result is fabricated by the fixture.
+  - **A4 (Steps 7 and 8):** One consolidated conclusion contains evidence linked to both branch IDs and the precomputed root-cause classification. The EOMS payload contains the ticket ID, conclusion structure, both contributing agents, and timestamps. The diagnosis-only terminal state is reached and the OMC repair-command log remains empty.
 - **Finally / Cleanup:** Release the barrier in all outcomes and assert that no participant remains waiting. Delete test ticket/workflow-run state, reset agent fixtures and EOMS captures, restore line data and metrics to baseline, and assert baseline equality and an empty repair-command log.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_parallel_diagnosis_summarizes_both_agent_results` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -199,15 +206,20 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** The diagnosis and restoration path is deployed; two independent ticket fixtures use the same fault; restoration is supported; recovered metrics are available; the workbench policy fixture supports test-controlled grant and deny; the expected denied state and escalation record will be taken from the confirmed §9 item 1 contract.
 - **Steps:**
-  1. Set policy = grant, publish the first ticket, and observe diagnosis write-back, the authorization decision, repair, verification, recovery, and terminal state.
-  2. Reset all ticket, policy, event, and simulator captures and restore the line baseline.
-  3. Set policy = deny, publish the second ticket, and observe diagnosis write-back, the authorization decision, and the contracted denied terminal path.
-  4. Inspect the complete OMC command logs and EOMS states for both tickets.
+  1. Set policy = grant.
+  2. Publish the first ticket.
+  3. Observe diagnosis write-back, the authorization decision, repair, verification, recovery, and terminal state.
+  4. Reset all ticket, policy, event, and simulator captures.
+  5. Restore the line baseline.
+  6. Set policy = deny.
+  7. Publish the second ticket.
+  8. Observe diagnosis write-back, the authorization decision, and the contracted denied terminal path.
+  9. Inspect the complete OMC command logs and EOMS states for both tickets.
 - **Assertions:**
-  - **A1 (Step 1):** The first ticket has one grant decision correlated to its authorization request; every repair command occurs after that grant; closure, if reached, occurs only after passed verification.
-  - **A2 (Step 2):** The second run starts with no events or commands from the first ticket and with the line equal to baseline.
-  - **A3 (Step 3):** The second ticket receives one deny decision with the contract-required reason, reaches exactly the contracted denied terminal state and escalation path, and its diagnosis write-back is present.
-  - **A4 (Step 4):** The denied ticket has zero repair commands, zero recovery notifications, and zero automatic closures; all grant-run commands and events remain correlated only to the first ticket.
+  - **A1 (Steps 1, 2, and 3):** The first ticket has one grant decision correlated to its authorization request; every repair command occurs after that grant; closure, if reached, occurs only after passed verification.
+  - **A2 (Steps 4 and 5):** The second run starts with no events or commands from the first ticket and with the line equal to baseline.
+  - **A3 (Steps 6, 7, and 8):** The second ticket receives one deny decision with the contract-required reason, reaches exactly the contracted denied terminal state and escalation path, and its diagnosis write-back is present.
+  - **A4 (Step 9):** The denied ticket has zero repair commands, zero recovery notifications, and zero automatic closures; all grant-run commands and events remain correlated only to the first ticket.
 - **Finally / Cleanup:** Restore default authorization policy; clear both tickets and all captures; restore line baseline after either run and assert baseline equality; verify that no denied-ticket repair command or closure exists after cleanup.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_authorization_gate_controls_repair_execution` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -216,15 +228,18 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** All agents and stubs are ready; restoration is supported; policy = grant; degraded and recovered metric fixtures and the expected baseline are loaded. The OMC simulator holds its completion notification until released by the test. Completion and recovery payload assertions will use the confirmed §9 item 2 contract; metric criteria will use §9 item 3.
 - **Steps:**
-  1. Publish a ticket and observe grab, parallel diagnosis, diagnosis write-back, and authorization grant.
-  2. Allow the repair command to reach the simulator while holding its completion notification; verify that no verification-start event has yet been emitted.
-  3. Release the OMC completion notification and capture workbench receipt, verification start, metric reads, and verification result.
-  4. Observe the workbench recovery notification, WAIMO receipt/acknowledgement, and EOMS closure.
+  1. Publish a ticket.
+  2. Observe grab, parallel diagnosis, diagnosis write-back, and authorization grant.
+  3. Allow the repair command to reach the simulator while holding its completion notification.
+  4. Verify that no verification-start event has yet been emitted.
+  5. Release the OMC completion notification.
+  6. Capture workbench receipt, verification start, metric reads, and verification result.
+  7. Observe the workbench recovery notification, WAIMO receipt/acknowledgement, and EOMS closure.
 - **Assertions:**
-  - **A1 (Step 1):** The expected diagnosis write-back and grant are correlated to the ticket, and no repair precedes the grant.
-  - **A2 (Step 2):** Exactly one expected repair command is logged and no verification or recovery event occurs before the held completion notification.
-  - **A3 (Step 3):** The workbench receives one completion Notification-T event from the expected OMC source before verification starts; verification reads the recovered fixture and its result equals the confirmed recovery criterion.
-  - **A4 (Step 4):** The recovery notification follows the passed verification and contains the same ticket ID and verification result; WAIMO acknowledgement precedes exactly one EOMS closure.
+  - **A1 (Steps 1 and 2):** The expected diagnosis write-back and grant are correlated to the ticket, and no repair precedes the grant.
+  - **A2 (Steps 3 and 4):** Exactly one expected repair command is logged and no verification or recovery event occurs before the held completion notification.
+  - **A3 (Steps 5 and 6):** The workbench receives one completion Notification-T event from the expected OMC source before verification starts; verification reads the recovered fixture and its result equals the confirmed recovery criterion.
+  - **A4 (Step 7):** The recovery notification follows the passed verification and contains the same ticket ID and verification result; WAIMO acknowledgement precedes exactly one EOMS closure.
 - **Finally / Cleanup:** Release any held notification to unblock fixtures, then clear notification, metric, command, and ticket captures. Restore baseline line state and metrics and assert exact baseline equality; verify that no further recovery or closure event is emitted after reset.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_completion_notification_triggers_verified_recovery` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -233,15 +248,16 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** Restoration is supported and policy = grant. The simulator accepts repair and emits completion but continues to return the degraded metric fixture. The contracted verification failure result, bounded retry/escalation sequence, and terminal state from §9 item 3 are recorded as the expected fixture values; no retry bound or escalation behavior is assumed by this specification.
 - **Steps:**
-  1. Publish the ticket and observe diagnosis write-back, authorization grant, repair, and OMC completion notification.
-  2. Allow performance verification to read the unchanged degraded metrics.
-  3. Capture each contracted verification retry or escalation event until the expected bounded terminal point is reached.
-  4. Inspect recovery notifications, EOMS closure state, OMC commands, and the actual line/metric state.
+  1. Publish the ticket.
+  2. Observe diagnosis write-back, authorization grant, repair, and OMC completion notification.
+  3. Allow performance verification to read the unchanged degraded metrics.
+  4. Capture each contracted verification retry or escalation event until the expected bounded terminal point is reached.
+  5. Inspect recovery notifications, EOMS closure state, OMC commands, and the actual line/metric state.
 - **Assertions:**
-  - **A1 (Step 1):** Diagnosis write-back is present, the grant precedes repair, and completion precedes the first verification attempt.
-  - **A2 (Step 2):** Verification returns the contract-defined failure result and the observed metric set exactly equals the degraded fixture rather than the recovered fixture.
-  - **A3 (Step 3):** The observed retry/escalation sequence and attempt count exactly match the confirmed contract fixture, do not exceed its bound, and terminate at its specified state.
-  - **A4 (Step 4):** No notification claims successful recovery, EOMS has no automatic closure, and line state and command records equal the fixture-derived expectation for the commands actually attempted.
+  - **A1 (Steps 1 and 2):** Diagnosis write-back is present, the grant precedes repair, and completion precedes the first verification attempt.
+  - **A2 (Step 3):** Verification returns the contract-defined failure result and the observed metric set exactly equals the degraded fixture rather than the recovered fixture.
+  - **A3 (Step 4):** The observed retry/escalation sequence and attempt count exactly match the confirmed contract fixture, do not exceed its bound, and terminate at its specified state.
+  - **A4 (Step 5):** No notification claims successful recovery, EOMS has no automatic closure, and line state and command records equal the fixture-derived expectation for the commands actually attempted.
 - **Finally / Cleanup:** Stop only test-owned retry drivers, clear all simulator and ticket state, force the line and metrics back to baseline, and assert baseline equality. Assert that no late retry, successful recovery notification, or closure appears after cleanup.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_unrecovered_performance_prevents_recovery_and_closure` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -250,15 +266,17 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** The OMC simulator restoration-support flag = unsupported for the located fault. Diagnosis fixtures and expected root cause are loaded. The contracted capability-check result, alternative path, and terminal state from §9 item 4 are the expected values; this case does not presume manual escalation or any other specific alternative.
 - **Steps:**
-  1. Publish the ticket and observe the grab, dispatch, two-agent diagnosis, summarization, and EOMS diagnosis write-back.
-  2. Trigger the restoration-capability check for the diagnosed fault and capture its result.
-  3. Observe the contracted alternative path through its terminal state.
-  4. Inspect the OMC repair-command log, EOMS write-backs, notifications, and final ticket state.
+  1. Publish the ticket.
+  2. Observe the grab, dispatch, two-agent diagnosis, summarization, and EOMS diagnosis write-back.
+  3. Trigger the restoration-capability check for the diagnosed fault.
+  4. Capture its result.
+  5. Observe the contracted alternative path through its terminal state.
+  6. Inspect the OMC repair-command log, EOMS write-backs, notifications, and final ticket state.
 - **Assertions:**
-  - **A1 (Step 1):** Both SPN agent IDs contribute to one conclusion matching the expected root cause, and EOMS receives that conclusion for the same ticket.
-  - **A2 (Step 2):** The capability result exactly equals the confirmed unsupported value and is correlated to the ticket and located fault.
-  - **A3 (Step 3):** The observed alternative-path events and terminal state exactly match the confirmed §9 item 4 contract.
-  - **A4 (Step 4):** No repair command is issued, no successful recovery notification is emitted, and the ticket is not represented as successfully restored or automatically closed.
+  - **A1 (Steps 1 and 2):** Both SPN agent IDs contribute to one conclusion matching the expected root cause, and EOMS receives that conclusion for the same ticket.
+  - **A2 (Steps 3 and 4):** The capability result exactly equals the confirmed unsupported value and is correlated to the ticket and located fault.
+  - **A3 (Step 5):** The observed alternative-path events and terminal state exactly match the confirmed §9 item 4 contract.
+  - **A4 (Step 6):** No repair command is issued, no successful recovery notification is emitted, and the ticket is not represented as successfully restored or automatically closed.
 - **Finally / Cleanup:** Reset the support flag to its default, clear alternative-path and ticket captures, restore line state and metrics to baseline, and assert baseline equality, an empty repair-command log, and no late recovery or closure event.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_unsupported_restoration_uses_contracted_alternative_path` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -267,15 +285,16 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** All layers and the workflow are deployed. After §9 item 6 is resolved, the negotiation peers, scenario, expected outcome, and round/timeout bound are stored in a deterministic fixture. No peer selection or SDK default is assumed by this specification; `USE_MOCK_LLM=true`.
 - **Steps:**
-  1. Publish the fixture ticket that requires the contracted negotiation and capture the parent workflow and task identifiers.
-  2. Record every Negotiation-T exchange, peer identity, client/server state, and round number until terminal negotiation state.
-  3. Observe the dispatch or restoration decision linked to the negotiation outcome.
-  4. Compare the complete trace with the fixture's expected peers, outcome, and bound.
+  1. Publish the fixture ticket that requires the contracted negotiation.
+  2. Capture the parent workflow and task identifiers.
+  3. Record every Negotiation-T exchange, peer identity, client/server state, and round number until terminal negotiation state.
+  4. Observe the dispatch or restoration decision linked to the negotiation outcome.
+  5. Compare the complete trace with the fixture's expected peers, outcome, and bound.
 - **Assertions:**
-  - **A1 (Step 1):** The ticket, workflow, and negotiation correlation IDs are present and no negotiation event belongs to another ticket.
-  - **A2 (Step 2):** Exchanges occur only between the contracted peer identities; both sides reach aligned terminal states; the observed round count and framework wait remain within the confirmed bound.
-  - **A3 (Step 3):** The subsequent decision references the negotiation outcome identifier and exactly matches the contracted outcome-to-action mapping.
-  - **A4 (Step 4):** The trace has one terminal outcome, no exchange after termination, and no unconverged or timed-out negotiation is treated as success.
+  - **A1 (Steps 1 and 2):** The ticket, workflow, and negotiation correlation IDs are present and no negotiation event belongs to another ticket.
+  - **A2 (Step 3):** Exchanges occur only between the contracted peer identities; both sides reach aligned terminal states; the observed round count and framework wait remain within the confirmed bound.
+  - **A3 (Step 4):** The subsequent decision references the negotiation outcome identifier and exactly matches the contracted outcome-to-action mapping.
+  - **A4 (Step 5):** The trace has one terminal outcome, no exchange after termination, and no unconverged or timed-out negotiation is treated as success.
 - **Finally / Cleanup:** Cancel only test-owned pending negotiation tasks, clear the negotiation fixture and captures, restore policy and line baseline, and assert no active negotiation for the ticket, baseline line equality, and no subsequent decision after reset.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_cross_layer_negotiation_converges_and_drives_decision` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -284,15 +303,19 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** Both SPN agents initially healthy and registered; diagnosis workflow and expected root-cause fixtures loaded. A test-controlled network fault can make only SPN agent 2 unreachable. The expected aggregation/failure result and repair-on-incomplete-diagnosis decision will come from the confirmed §9 item 5 contract.
 - **Steps:**
-  1. Inject the SPN agent 2 unreachable fault, verify the fixture reports that fault, and publish a new ticket.
-  2. Observe the two parallel diagnosis branches, including SPN agent 1's result and SPN agent 2's contracted failure/timeout result.
-  3. Observe aggregation, diagnosis write-back, and any subsequent authorization or repair attempt.
-  4. Remove the fault, wait for registry and endpoint health, then publish a fresh recovery-probe ticket and observe both diagnosis branches and write-back.
+  1. Inject the SPN agent 2 unreachable fault.
+  2. Verify the fixture reports that fault.
+  3. Publish a new ticket.
+  4. Observe the two parallel diagnosis branches, including SPN agent 1's result and SPN agent 2's contracted failure/timeout result.
+  5. Observe aggregation, diagnosis write-back, and any subsequent authorization or repair attempt.
+  6. Remove the fault.
+  7. Wait for registry and endpoint health.
+  8. Publish a fresh recovery-probe ticket and observe both diagnosis branches and write-back.
 - **Assertions:**
-  - **A1 (Step 1):** The injected fault affects only SPN agent 2 and the first ticket starts two branches with distinct expected agent IDs.
-  - **A2 (Step 2):** SPN agent 1 returns its fixture result; SPN agent 2 reaches the contracted bounded failure/timeout outcome; no result is fabricated for agent 2.
-  - **A3 (Step 3):** Aggregation and EOMS write-back exactly match the confirmed partial-result or failure contract and explicitly identify the missing domain where required. Authorization and repair behavior exactly match the confirmed incomplete-diagnosis rule; no unconfirmed repair permission is assumed.
-  - **A4 (Step 4):** After restoration, agent 2 is healthy and the fresh ticket receives genuine results from both SPN agents and one consolidated write-back correlated only to the recovery-probe ticket.
+  - **A1 (Steps 1, 2, and 3):** The injected fault affects only SPN agent 2 and the first ticket starts two branches with distinct expected agent IDs.
+  - **A2 (Step 4):** SPN agent 1 returns its fixture result; SPN agent 2 reaches the contracted bounded failure/timeout outcome; no result is fabricated for agent 2.
+  - **A3 (Step 5):** Aggregation and EOMS write-back exactly match the confirmed partial-result or failure contract and explicitly identify the missing domain where required. Authorization and repair behavior exactly match the confirmed incomplete-diagnosis rule; no unconfirmed repair permission is assumed.
+  - **A4 (Steps 6, 7, and 8):** After restoration, agent 2 is healthy and the fresh ticket receives genuine results from both SPN agents and one consolidated write-back correlated only to the recovery-probe ticket.
 - **Finally / Cleanup:** Always remove the network fault and wait for agent/registry health; assert that agent 2 is reachable before teardown completes. Clear both tickets and captures, reset the barrier/fixtures if used, restore line baseline, and assert baseline equality and no residual fault injection.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_unreachable_spn_agent_returns_contracted_partial_result` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -301,15 +324,18 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** Diagnosis succeeds, restoration is supported, policy = grant, and the OMC simulator is configured to fail the repair command. The failure response, bounded retry behavior, degraded terminal state, and expected post-failure line state are supplied by the confirmed §9 item 9 contract and a stateful simulator fixture; no atomicity or retry guarantee is presumed.
 - **Steps:**
-  1. Snapshot the baseline line state, publish the ticket, and observe diagnosis write-back and authorization grant.
-  2. Allow the repair command to reach the simulator and capture the injected failure response and every command attempt.
-  3. Observe the contracted bounded retry/degraded path through its terminal point.
-  4. Inspect completion and recovery notifications, EOMS closure, actual line state, and the command-attempt log.
+  1. Snapshot the baseline line state.
+  2. Publish the ticket.
+  3. Observe diagnosis write-back and authorization grant.
+  4. Allow the repair command to reach the simulator.
+  5. Capture the injected failure response and every command attempt.
+  6. Observe the contracted bounded retry/degraded path through its terminal point.
+  7. Inspect completion and recovery notifications, EOMS closure, actual line state, and the command-attempt log.
 - **Assertions:**
-  - **A1 (Step 1):** The diagnosis write-back is present and the grant precedes every repair attempt; the initial line state equals the baseline snapshot.
-  - **A2 (Step 2):** Each attempt is correlated to the ticket and authorization request, and the simulator returns the configured failure rather than a successful repair result.
-  - **A3 (Step 3):** The retry count, event sequence, and degraded terminal state exactly match the confirmed contract and remain within its bound.
-  - **A4 (Step 4):** No successful completion notification, successful recovery notification, or automatic closure is emitted. Actual line state equals the fixture-derived state for the attempts recorded in the command log, with no unrecorded mutation.
+  - **A1 (Steps 1, 2, and 3):** The diagnosis write-back is present and the grant precedes every repair attempt; the initial line state equals the baseline snapshot.
+  - **A2 (Steps 4 and 5):** Each attempt is correlated to the ticket and authorization request, and the simulator returns the configured failure rather than a successful repair result.
+  - **A3 (Step 6):** The retry count, event sequence, and degraded terminal state exactly match the confirmed contract and remain within its bound.
+  - **A4 (Step 7):** No successful completion notification, successful recovery notification, or automatic closure is emitted. Actual line state equals the fixture-derived state for the attempts recorded in the command log, with no unrecorded mutation.
 - **Finally / Cleanup:** Clear the injected repair failure and all ticket/command captures, issue only simulator-owned reset operations as needed, restore the line and metrics to the snapshot baseline, and assert exact baseline equality. Verify that no late retry, completion, recovery, or closure event occurs after reset.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_failed_repair_preserves_contracted_line_state` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -318,15 +344,17 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 - **Requirement:** https://github.com/project-openan/integration-test/issues/34
 - **Preconditions:** Two independent line/fault fixtures and tickets are available with separate expected conclusions and metric sets; restoration is supported and policy = grant; the EOMS stub records every write-back, recovery notification, and closure by ticket ID. Required full-loop contracts are the same confirmed contracts used by 001.
 - **Steps:**
-  1. Reset both line simulators and publish both tickets concurrently through separate test-controlled requests.
-  2. Capture both complete stage chains until each ticket reaches its terminal state.
-  3. Replay each ticket's closure trigger once after its initial closure.
-  4. Compare each ticket's stage graph and conclusion with its own isolated-run expected fixture and inspect all post-replay records.
+  1. Reset both line simulators.
+  2. Publish both tickets concurrently through separate test-controlled requests.
+  3. Capture both complete stage chains until each ticket reaches its terminal state.
+  4. Replay each ticket's closure trigger once after its initial closure.
+  5. Compare each ticket's stage graph and conclusion with its own isolated-run expected fixture.
+  6. Inspect all post-replay records.
 - **Assertions:**
-  - **A1 (Step 1):** Ticket IDs, line IDs, workflow IDs, and branch IDs are distinct between the two requests and both lines start at their own baseline.
-  - **A2 (Step 2):** Every event and command resolves to exactly one ticket and its own line; each conclusion equals its own precomputed expectation; both chains satisfy the standing authorization, verification, and recovery ordering guards.
-  - **A3 (Step 3):** Each ticket has exactly one closure. Replay creates no additional closure, diagnosis write-back, repair command, or recovery notification for either ticket.
-  - **A4 (Step 4):** Each concurrent-run stage graph and terminal result equals the corresponding isolated-run expected fixture, with no cross-ticket identifiers or metric values.
+  - **A1 (Steps 1 and 2):** Ticket IDs, line IDs, workflow IDs, and branch IDs are distinct between the two requests and both lines start at their own baseline.
+  - **A2 (Step 3):** Every event and command resolves to exactly one ticket and its own line; each conclusion equals its own precomputed expectation; both chains satisfy the standing authorization, verification, and recovery ordering guards.
+  - **A3 (Step 4):** Each ticket has exactly one closure. Replay creates no additional closure, diagnosis write-back, repair command, or recovery notification for either ticket.
+  - **A4 (Steps 5 and 6):** Each concurrent-run stage graph and terminal result equals the corresponding isolated-run expected fixture, with no cross-ticket identifiers or metric values.
 - **Finally / Cleanup:** Clear replay triggers and all ticket/event captures, restore both lines and metric sets independently, and assert each equals its own baseline. Verify both closure counts remain one and no late duplicate write-back, recovery notification, or closure occurs.
 - **Automation:** `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py::test_concurrent_tickets_isolate_and_deduplicate_closure` — planned after contract confirmation; must not be implemented or counted toward release exit while Draft.
 
@@ -344,7 +372,7 @@ P0/P1 rows use Requirement Link https://github.com/project-openan/integration-te
 ## 7. Tags, Naming, and Code Layout
 
 - Test file: `e2e/system-integration/spn-line-full-process/test_spn_line_full_process.py`;
-- Test functions: `test_<action>_<expected_result>` (e.g., `test_submit_ticket_closes_only_after_verified_restoration`); optional class grouping `TestSpnLineFullProcess`;
+- Test functions: `test_<action>_<expected_result>` (e.g., `test_full_process_closes_after_verified_restoration`); optional class grouping `TestSpnLineFullProcess`;
 - Tags - all five dimensions (Framework §6.4):
 
 | Dimension | Values for S5 |

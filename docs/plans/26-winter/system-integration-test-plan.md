@@ -86,11 +86,12 @@ Only components participating in a case are declared in that row's `Component De
 - Isolate mutable fixtures per case and restore all test-controlled state in `finally`/teardown;
 - Preserve event traces, execution records, logs, and Kubernetes evidence in `EVIDENCE_DIR` on failure.
 
-### 3.4 Automation and Readiness Strategy
+### 3.4 Automation Strategy
 
 - Every P0/P1 row has `Automatable=Yes` as its final automation requirement and a planned test-function mapping in the scenario specification;
 - `status:ready` means the requirement link, contract, fixture, deterministic expected result, cleanup, and automation mapping are sufficiently defined for implementation;
 - `status:draft` means a named open item blocks implementation. Draft rows are design inventory only: they are excluded from current smoke/full selection and current pass-rate denominators;
+- Current readiness of this table: 6 rows are Ready and 36 are Draft; among the 33 P0/P1 rows, 5 are Ready (2 of the 10 P0 rows) and 28 are Draft;
 - A Draft row becomes Ready only after its blocking contract is linked or resolved and the matrix, specification, and CSV are updated together;
 - Ready P0/P1 cases require 100% automation and repeatability. Final SIT exit cannot claim complete scenario coverage while release-required cases remain Draft; any scope change requires Integration Testing WG approval and an update to the plan and tracking issue.
 
@@ -100,7 +101,7 @@ Only components participating in a case are declared in that row's `Component De
 |---------|---------|----------|------------|-----------------------|---------------|
 | S1 | Broadband complaint: fixed workflow, discovery, multi-agent diagnosis, closure or expert handoff | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S1](../../sit-specs/complaint-handling.md) |
 | S2 | Mobile cross-domain complaint: group-province collaboration, negotiation, diagnosis, write-back | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S2](../../sit-specs/cross-domain-complaint.md) |
-| S3 | Intent-driven energy-cost optimization with guardrails and effect evaluation | orchestration-center; registry-center; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S3](../../sit-specs/intent-energy-saving.md) |
+| S3 | Intent-driven energy-cost optimization with guardrails and effect evaluation | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S3](../../sit-specs/intent-energy-saving.md) |
 | S4 | Single-city SPN diagnosis through direct or orchestration-driven integration | registry-center; a2a-t-sdk; workflow-exec-engine; mockagent; orchestration-center only where used | 8 | P0 2 / P1 4 / P2 2 | [S4](../../sit-specs/spn-line-diagnosis.md) |
 | S5 | Cross-city SPN diagnosis, authorized restoration, verification, notification, and closure | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 10 | P0 2 / P1 7 / P2 1 | [S5](../../sit-specs/spn-line-full-process.md) |
 
@@ -137,6 +138,7 @@ Every P0/P1 row links to [integration-test#34](https://github.com/project-openan
 ### 5.5 Case Design Requirements
 
 - Every P0/P1 case has independent preconditions, numbered steps, deterministic assertions, cleanup/recovery, and a planned test-function mapping;
+- Each numbered step holds one action. Consecutive actions whose effect can only be judged together (for example a fault injection and the probe that observes it) are separate steps that share one `see result N`, as the case review checklist allows;
 - No case relies on “same as” another case for required execution content;
 - Different fault modes are separate cases or explicitly parameterized runs with independent setup, assertions, and teardown;
 - Parallel behavior uses controlled synchronization or structural assertions, never timing assumptions based on agent speed;
