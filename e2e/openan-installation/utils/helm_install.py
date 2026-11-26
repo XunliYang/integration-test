@@ -107,7 +107,19 @@ def install_online_helm(
 def uninstall_online_helm(cfg: InstallConfig) -> CommandResult:
     log.info("uninstall_online_helm")
     t0 = time.time()
-    result = run("./uninstall.sh", cwd=online_install_dir(cfg), timeout=1800)
+    # uninstall.sh asks three yes/no questions via /dev/tty; answer them
+    # explicitly so the run does not hang on an unattended stdin.
+    answers = [
+        (r"Remove persistent data", "y"),   # default no, but we want full cleanup
+        (r"Delete namespace", "y"),         # default yes
+        (r"Proceed with uninstall", "y"),   # default yes
+    ]
+    result = run_interactive(
+        f"bash {online_install_dir(cfg) / 'uninstall.sh'}",
+        cwd=online_install_dir(cfg),
+        answers=answers,
+        timeout=1800,
+    )
     log.info("uninstall_online_helm exit=%d elapsed=%.1fs", result.exit_code, time.time() - t0)
     return result
 
