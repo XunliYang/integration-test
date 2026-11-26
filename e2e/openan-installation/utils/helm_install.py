@@ -229,8 +229,13 @@ def add_vendor_credential(identity: str = "e2e-vendor") -> str:
         raise RuntimeError(f"failed to patch openan-rc-credentials: {result.output}")
     log.info("add_vendor_credential: patched openan-rc-credentials, recycling registry pod")
     # The credentials file is read at startup; recycle the registry pod so the
-    # new/rotated entry is picked up, then wait for it to come back Ready.
+    # new/rotated entry is picked up, then poll the health endpoint until the
+    # registry actually serves through the ingress (pod Ready ≠ endpoint synced).
     kubectl(["-n", "openan", "delete", "pod", "-l", "app=registry-center", "--wait=false"])
-    wait_until(all_pods_running_and_ready, timeout=600)
-    log.info("add_vendor_credential: registry pod ready")
+
+    def _registry_serving():
+        _, status = curl_request("GET", f"{platform_base('')}/registry/health")
+        return status == "200"
+    wait_until(_registry_serving, timeout=180)
+    log.info("add_vendor_credential: registry serving again")
     return token

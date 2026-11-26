@@ -102,8 +102,7 @@ def pytest_runtest_logreport(report):
 
 def pytest_sessionfinish(session):
     elapsed = time.time() - _session_start if _session_start else 0
-    passed = len(session.testscollected)
-    log.info("TEST SESSION END  elapsed=%.1fs  collected=%d", elapsed, passed)
+    log.info("TEST SESSION END  elapsed=%.1fs  collected=%d", elapsed, _total_items)
 
 
 @pytest.fixture(scope="session", autouse=True)
