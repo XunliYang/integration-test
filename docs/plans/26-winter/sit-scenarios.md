@@ -1,6 +1,7 @@
 # OpenAN SIT Scenario Inventory
 
 > *Version: v0.1 (Draft)*
+> *Milestone: `26-winter` | Archive path: `docs/plans/26-winter/` (version-specific SIT design artifacts)*
 > *Maintained by: OpenAN Integration Testing Working Group*
 > *Language: English*
 > *Status: scenario baseline with five v0.1 specification drafts; case-level readiness is tracked in each specification and the release case table.*
@@ -100,6 +101,6 @@ These are not independent scenarios; they are variant axes to be covered inside 
 
 ## 5. Scope Boundary and Next Steps
 
-- This document fixes **what** the SIT scenarios are and **why** they are split this way. Per-scenario specifications live in `docs/sit-specs/<slug>.md`, one file per scenario, each covering its variants and the applicable cross-cutting dimensions, consistent with `docs/OpenAN Integration Testing Process and Framework.md` (naming §6.1, case rules §6.3, tags §6.4, env contract §6.6, gates §8).
+- This document fixes **what** the SIT scenarios are and **why** they are split this way. Per-scenario specifications live in `docs/plans/26-winter/sit-specs/<slug>.md`, one file per scenario, each covering its variants and the applicable cross-cutting dimensions, consistent with `docs/OpenAN Integration Testing Process and Framework.md` (naming §6.1, case rules §6.3, tags §6.4, env contract §6.6, gates §8).
 - Specification status is tracked in the inventory table above (§3); individual cases additionally carry `Ready` or `Draft` status in their scenario matrix and CSV Notes.
 - Case IDs use `[SIT-<slug>-<number>]` with the slugs in §3. The 42 cases and their readiness states are archived in `docs/plans/26-winter/testcases-system-integration.csv`; the release plan is `docs/plans/26-winter/system-integration-test-plan.md`.

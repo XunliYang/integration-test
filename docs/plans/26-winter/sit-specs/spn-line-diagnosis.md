@@ -1,11 +1,12 @@
 # SIT Specification S4: SPN Dedicated-Line Complaint - Diagnosis Only
 
 > *Version: v0.1 (Draft)*
+> *Milestone: `26-winter` | Archive path: `docs/plans/26-winter/sit-specs/` (version-specific SIT design artifact)*
 > *Maintained by: OpenAN Integration Testing Working Group*
 > *Language: English*
 > *Scenario slug: `spn-line-diagnosis` - Case IDs: `[SIT-spn-line-diagnosis-<number>]`*
 > *Scenario baseline: [sit-scenarios.md](../sit-scenarios.md) S4*
-> *Governance baseline: [OpenAN Integration Testing Process and Framework](../OpenAN%20Integration%20Testing%20Process%20and%20Framework.md) (cited as "Framework" below)*
+> *Governance baseline: [OpenAN Integration Testing Process and Framework](../../../OpenAN%20Integration%20Testing%20Process%20and%20Framework.md) (cited as "Framework" below)*
 
 ---
 

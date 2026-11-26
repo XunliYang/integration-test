@@ -1,11 +1,12 @@
 # SIT Specification S1: Home Broadband Complaint Handling
 
 > *Version: v0.1 (Draft)*
+> *Milestone: `26-winter` | Archive path: `docs/plans/26-winter/sit-specs/` (version-specific SIT design artifact)*
 > *Maintained by: OpenAN Integration Testing Working Group*
 > *Language: English*
 > *Scenario slug: `complaint-handling` - Case IDs: `[SIT-complaint-handling-<number>]`*
 > *Scenario baseline: [sit-scenarios.md](../sit-scenarios.md) S1*
-> *Governance baseline: [OpenAN Integration Testing Process and Framework](../OpenAN%20Integration%20Testing%20Process%20and%20Framework.md) (cited as "Framework" below)*
+> *Governance baseline: [OpenAN Integration Testing Process and Framework](../../../OpenAN%20Integration%20Testing%20Process%20and%20Framework.md) (cited as "Framework" below)*
 
 ---
 

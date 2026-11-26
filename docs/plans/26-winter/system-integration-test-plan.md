@@ -12,7 +12,7 @@
 
 This plan defines the release-level System Integration Testing (SIT) scope for the OpenAN `26-winter` release. It verifies five end-to-end application scenarios across Registry Center, Orchestration Center, the workflow execution engine, A2A-T SDKs, sample agents, and external-system stubs on a real deployment.
 
-The detailed scenario inventory is in [../../sit-scenarios.md](../../sit-scenarios.md). The five scenario specifications linked below are the design source for the 42 rows in [testcases-system-integration.csv](testcases-system-integration.csv).
+The detailed scenario inventory is in [sit-scenarios.md](sit-scenarios.md). The five scenario specifications linked below are the design source for the 42 rows in [testcases-system-integration.csv](testcases-system-integration.csv).
 
 ### 1.2 Scope
 
@@ -38,12 +38,12 @@ The detailed scenario inventory is in [../../sit-scenarios.md](../../sit-scenari
 |------|----------|
 | SIT tracking issue | [integration-test#34](https://github.com/project-openan/integration-test/issues/34) |
 | OpenAN Integration Testing Process and Framework | `docs/OpenAN Integration Testing Process and Framework.md` |
-| SIT scenario inventory | `docs/sit-scenarios.md` |
-| S1 specification | `docs/sit-specs/complaint-handling.md` |
-| S2 specification | `docs/sit-specs/cross-domain-complaint.md` |
-| S3 specification | `docs/sit-specs/intent-energy-saving.md` |
-| S4 specification | `docs/sit-specs/spn-line-diagnosis.md` |
-| S5 specification | `docs/sit-specs/spn-line-full-process.md` |
+| SIT scenario inventory | `docs/plans/26-winter/sit-scenarios.md` |
+| S1 specification | `docs/plans/26-winter/sit-specs/complaint-handling.md` |
+| S2 specification | `docs/plans/26-winter/sit-specs/cross-domain-complaint.md` |
+| S3 specification | `docs/plans/26-winter/sit-specs/intent-energy-saving.md` |
+| S4 specification | `docs/plans/26-winter/sit-specs/spn-line-diagnosis.md` |
+| S5 specification | `docs/plans/26-winter/sit-specs/spn-line-full-process.md` |
 | Case-table field rules | `docs/templates/testcases-template-fields.md` |
 | Best-practice sources | https://openan.dev/best-practices.html |
 
@@ -99,11 +99,11 @@ Only components participating in a case are declared in that row's `Component De
 
 | Scenario ID | Scenario Description | Components | Case Count | Priority Distribution | Specification |
 |---------|---------|----------|------------|-----------------------|---------------|
-| S1 | Broadband complaint: fixed workflow, discovery, multi-agent diagnosis, closure or expert handoff | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S1](../../sit-specs/complaint-handling.md) |
-| S2 | Mobile cross-domain complaint: group-province collaboration, negotiation, diagnosis, write-back | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S2](../../sit-specs/cross-domain-complaint.md) |
-| S3 | Intent-driven energy-cost optimization with guardrails and effect evaluation | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S3](../../sit-specs/intent-energy-saving.md) |
-| S4 | Single-city SPN diagnosis through direct or orchestration-driven integration | registry-center; a2a-t-sdk; workflow-exec-engine; mockagent; orchestration-center only where used | 8 | P0 2 / P1 4 / P2 2 | [S4](../../sit-specs/spn-line-diagnosis.md) |
-| S5 | Cross-city SPN diagnosis, authorized restoration, verification, notification, and closure | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 10 | P0 2 / P1 7 / P2 1 | [S5](../../sit-specs/spn-line-full-process.md) |
+| S1 | Broadband complaint: fixed workflow, discovery, multi-agent diagnosis, closure or expert handoff | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S1](sit-specs/complaint-handling.md) |
+| S2 | Mobile cross-domain complaint: group-province collaboration, negotiation, diagnosis, write-back | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S2](sit-specs/cross-domain-complaint.md) |
+| S3 | Intent-driven energy-cost optimization with guardrails and effect evaluation | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 8 | P0 2 / P1 4 / P2 2 | [S3](sit-specs/intent-energy-saving.md) |
+| S4 | Single-city SPN diagnosis through direct or orchestration-driven integration | registry-center; a2a-t-sdk; workflow-exec-engine; mockagent; orchestration-center only where used | 8 | P0 2 / P1 4 / P2 2 | [S4](sit-specs/spn-line-diagnosis.md) |
+| S5 | Cross-city SPN diagnosis, authorized restoration, verification, notification, and closure | orchestration-center; registry-center; workflow-exec-engine; a2a-t-sdk; mockagent | 10 | P0 2 / P1 7 / P2 1 | [S5](sit-specs/spn-line-full-process.md) |
 
 The case-level `Status` and `Execution` columns in each specification are authoritative for current execution selection. The CSV carries the same state as `status:ready` or `status:draft` in Notes.
 
@@ -222,8 +222,8 @@ Development ownership in the CSV is assigned to the participating OpenAN Compone
 
 | Deliverable | Archive Path |
 |--------|---------|
-| Scenario inventory | `docs/sit-scenarios.md` |
-| Scenario specifications | `docs/sit-specs/` |
+| Scenario inventory | `docs/plans/26-winter/sit-scenarios.md` |
+| Scenario specifications | `docs/plans/26-winter/sit-specs/` |
 | Test plan | `docs/plans/26-winter/system-integration-test-plan.md` |
 | Case table | `docs/plans/26-winter/testcases-system-integration.csv` |
 | Automated test code | `e2e/system-integration/<scenario>/` (separate automation PR) |
