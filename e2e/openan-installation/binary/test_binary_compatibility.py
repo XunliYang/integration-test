@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from utils.binary_install import install_binary, uninstall_binary, wait_registry_up
+from utils.binary_install import host_runtimes, install_binary, uninstall_binary, wait_registry_up
 from utils.binary_offline import install_binary_offline, offline_dir, uninstall_binary_offline
 from utils.env import install_config
 from utils.shell import run
@@ -40,6 +40,21 @@ def _require_fresh_vm(cfg, case: str) -> None:
         pytest.skip(f"OPENAN_INSTALL_FRESH_VM is not set to 1 ({case} lets the installer change the host's runtimes)")
 
 
+def _runtime_paths(family: str, host: dict) -> list[tuple[str, str, str]]:
+    auto_install = f"{family}-family auto-install"
+    if host["python"]:
+        command, version = host["python"]
+        python = ("existing-interpreter", rf"\[OK\] Python {re.escape(version)} \({re.escape(command)}\)")
+    else:
+        python = (auto_install, DEBIAN_PYTHON if family == "debian" else CENTOS_PYTHON)
+    node_install = f"{DEBIAN_NODE if family == 'debian' else CENTOS_NODE}|{STANDALONE_NODE}"
+    if host["node"]:
+        node = ("existing-runtime", rf"(?m)^[ \t]*\[OK\] Node\.js v{re.escape(host['node'])}[ \t\r]*$")
+    else:
+        node = (auto_install, node_install)
+    return [("Python", *python), ("Node.js", *node)]
+
+
 @getattr(pytest.mark, "DFX-openan-installation-compatibility-002")
 @getattr(pytest.mark, "26-winter")
 @pytest.mark.P2
@@ -51,20 +66,15 @@ def test_runtime_auto_install_adapts_to_distro_family(require_profile, require_o
     family = _distro_family()
     if family == "unknown":
         pytest.skip("/etc/os-release is neither a Debian nor a CentOS family distribution")
+    host = host_runtimes()
     cleanup.add("binary uninstall", uninstall_binary, cfg)
     install = install_binary(cfg, evidence_stem="compatibility-002")
     assert install.exit_code == 0, install.output
-    assert re.search(r"\[OK\] Python 3\.1[2-9]\.\d+ \(python3(\.12|\.13)?\)", install.output), (
-        f"the installer did not resolve a Python 3.12+ interpreter:\n{install.output[-2500:]}"
-    )
-    python_pattern = DEBIAN_PYTHON if family == "debian" else CENTOS_PYTHON
-    assert re.search(python_pattern, install.output), (
-        f"no {family}-family Python auto-install path was taken:\n{install.output[-2500:]}"
-    )
-    node_pattern = DEBIAN_NODE if family == "debian" else CENTOS_NODE
-    assert re.search(f"{node_pattern}|{STANDALONE_NODE}", install.output), (
-        f"no {family}-family Node.js auto-install path was taken:\n{install.output[-2500:]}"
-    )
+    for runtime, path, pattern in _runtime_paths(family, host):
+        assert re.search(pattern, install.output), (
+            f"the installer did not take the {path} path for {runtime} (host runtimes before install: {host}):\n"
+            f"{install.output[-2500:]}"
+        )
     wait_registry_up()
     uninstall = uninstall_binary(cfg)
     assert uninstall.exit_code == 0, uninstall.output
