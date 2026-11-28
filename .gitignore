@@ -1,1 +1,5 @@
 outputs/
+evidence/
+e2e/.env
+__pycache__/
+*.pyc
