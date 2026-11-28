@@ -121,15 +121,26 @@ def run_interactive(
         echo=False,
         env=env,
     )
-    patterns = [pexpect.TIMEOUT, pexpect.EOF]
-    for pattern, _ in answers:
-        patterns.append(re.compile(pattern, re.IGNORECASE))
+    # Answers are consumed in order: only the current cursor and the patterns
+    # after it are armed, and a hit moves the cursor past that pattern. This is
+    # what makes a transcript in which the same prompt text shows up twice (the
+    # installer writes the prompt to stderr and the pty echoes the line ending)
+    # safe: an already-answered prompt cannot swallow the answer meant for the
+    # next one. Questions that the installer skips are handled by arming the
+    # rest of the list, so a later pattern may still fire first. The last
+    # pattern stays armed once the cursor reaches it, so a retry loop that
+    # re-asks the same question keeps receiving its answer.
+    cursor = 0
     transcript = []
     deadline = time.monotonic() + timeout
     try:
         while True:
             if time.monotonic() > deadline:
                 raise TimeoutError(f"interactive command exceeded timeout: {cmd}")
+            armed = answers[cursor:]
+            patterns = [pexpect.TIMEOUT, pexpect.EOF]
+            for pattern, _ in armed:
+                patterns.append(re.compile(pattern, re.IGNORECASE))
             index = child.expect(patterns)
             transcript.append(child.before or "")
             if index == 1:
@@ -139,7 +150,9 @@ def run_interactive(
                 if tail.endswith(("?", ":", "]")):
                     child.sendline("")
                 continue
-            child.sendline(answers[index - 2][1])
+            hit = index - 2
+            cursor += hit + 1 if cursor + hit + 1 < len(answers) else 0
+            child.sendline(armed[hit][1])
     finally:
         child.close()
         full = "".join(transcript)

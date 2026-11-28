@@ -100,8 +100,6 @@ def wizard_answers(
     pool = cfg.metallb_pool if metallb_pool is None else metallb_pool
     db_password = cfg.db_password if external_db is None else cfg.external_db_password
     answers = []
-    if components_answer is not None:
-        answers.append((r"components\s*\[", components_answer))
     answers.extend(
         [
             # install.sh: regenerate a leftover deployment.generated.json from a prior run
@@ -111,9 +109,10 @@ def wizard_answers(
             # LoadBalancer services in <pending> on the next install.
             (r"install metallb", "y"),
             (r"metallb ip pool", pool),
-            # configure.py Step 1: components (full-stack default). The trailing "["
-            # disambiguates the prompt from the "Components:" line in the deploy summary.
-            (r"components\s*\[", "all"),
+            # configure.py Step 1: components (full-stack default, or the
+            # caller's selection). The trailing "[" disambiguates the prompt
+            # from the "Components:" line in the deploy summary.
+            (r"components\s*\[", components_answer or "all"),
             # configure.py Step 2: image tags (narrow per-component matchers, in order)
             (r"registry-center image tag", cfg.image_tag),
             (r"orchestration-center image tag", cfg.image_tag),
@@ -137,10 +136,12 @@ def wizard_answers(
             (r"rerank[\w ]{0,20}model", ""),
             (r"use same llm", "yes"),
             (r"a2a-t sdk negotiation model", ""),
-            # configure.py Step 5: signing & secrets
+            # configure.py Step 5: signing & secrets. The database password is
+            # asked before the admin password, and the admin prompt is shown
+            # only when orchestration is selected.
             (r"registry signing material", "auto"),
-            (r"admin[\w ]{0,30}password", cfg.admin_password),
             (r"(postgres|database|mysql|SQL)[\w ]{0,30}password", db_password),
+            (r"admin[\w ]{0,30}password", cfg.admin_password),
             # HTTPS self-signed (default yes): gen_certs.py lives at
             # <repo-root>/tool/gen_certs.py and configure.py resolves it via
             # parents[2], so the default path works on a full repo checkout.
