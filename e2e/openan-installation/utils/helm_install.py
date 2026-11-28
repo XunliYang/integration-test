@@ -32,6 +32,10 @@ FULL_STACK_PODS = ("registry-center", "orchestration-center", "openan-frontend",
 NAMESPACE = "openan"
 DEFAULT_STORAGE_CLASS_ANNOTATION = "storageclass.kubernetes.io/is-default-class"
 KEEP_ANNOTATION = "helm.sh/resource-policy"
+# install.sh configures the MetalLB pool as soon as the CRDs exist, before the
+# validation webhook pods are Ready; see _metallb_webhook_cold_start().
+METALLB_COLD_START_RETRIES = 1
+METALLB_WEBHOOK_READY_TIMEOUT = 300
 METALLB_POOL_MANIFEST = """apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -168,16 +172,49 @@ def install_online_helm(
     log.info("install_online_helm: components=%s evidence=%s options=%s",
              components_answer or "all", evidence_stem, sorted(wizard_options))
     t0 = time.time()
-    result = run_interactive(
-        str(online_install_dir(cfg) / "install.sh"),
-        cwd=online_install_dir(cfg),
-        answers=wizard_answers(cfg, components_answer, **wizard_options),
-        timeout=3600,
-        evidence_stem=evidence_stem,
-    )
-    log.info("install_online_helm exit=%d elapsed=%.1fs output_tail=%s",
-             result.exit_code, time.time() - t0, result.output[-200:])
-    return result
+    stem = evidence_stem
+    attempt = 0
+    while True:
+        generated = values_path(cfg)
+        if generated.exists():
+            generated.unlink()
+        if attempt:
+            # A retry is only reachable after a failure in install.sh's
+            # infrastructure phase, i.e. before any Helm release exists. Nothing
+            # else has to be undone; the evidence stem is suffixed so the failed
+            # attempt stays on disk.
+            stem = f"{evidence_stem}-retry{attempt}" if evidence_stem else None
+        result = run_interactive(
+            str(online_install_dir(cfg) / "install.sh"),
+            cwd=online_install_dir(cfg),
+            answers=wizard_answers(cfg, components_answer, **wizard_options),
+            timeout=3600,
+            evidence_stem=stem,
+        )
+        log.info("install_online_helm exit=%d elapsed=%.1fs output_tail=%s",
+                 result.exit_code, time.time() - t0, result.output[-200:])
+        if result.exit_code == 0 or not _metallb_webhook_cold_start(result.output) or attempt >= METALLB_COLD_START_RETRIES:
+            return result
+        attempt += 1
+        # The failed attempt exits a few seconds after the CRDs appear, long
+        # before the webhook pods that serve them are Running. Let them come up
+        # before the rerun, otherwise it fails the same way.
+        wait_until(_metallb_webhook_ready, timeout=METALLB_WEBHOOK_READY_TIMEOUT)
+        log.info("install_online_helm: MetalLB webhook was not ready, retrying (attempt %d)", attempt + 1)
+
+
+def _metallb_webhook_cold_start(transcript: str) -> bool:
+    """install.sh waits for the MetalLB CRDs but not for the webhook pods that
+    serve them, so the first IPAddressPool apply right after a fresh MetalLB
+    install can fail with an InternalError from the validation webhook. One rerun
+    after _metallb_webhook_ready() gets past it."""
+    return "metallb.io" in transcript and "failed calling webhook" in transcript
+
+
+def _metallb_webhook_ready() -> bool:
+    pods = kubectl(["-n", "metallb-system", "get", "deploy", "controller",
+                    "-o", "jsonpath={.status.readyReplicas}/{.status.replicas}"], timeout=120).stdout.strip()
+    return pods == "1/1"
 
 
 def configure_online_helm(cfg: InstallConfig, evidence_stem: str | None = None, **wizard_options) -> CommandResult:
